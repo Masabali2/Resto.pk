@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "dgSpecHash": "7yC0A+oibIQ=",
+  "success": true,
+  "projectFilePath": "/workspace/src/RestaurantSaaS.Application/RestaurantSaaS.Application.csproj",
+  "expectedPackageFiles": [
+    "/root/.nuget/packages/fluentvalidation/11.9.2/fluentvalidation.11.9.2.nupkg.sha512"
+  ],
+  "logs": []
+}
