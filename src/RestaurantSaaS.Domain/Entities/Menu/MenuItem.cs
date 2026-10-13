@@ -4,44 +4,36 @@ using RestaurantSaaS.Domain.ValueObjects;
 
 namespace RestaurantSaaS.Domain.Entities.Menus;
 
-/// <summary>
-/// A sellable dish/drink. Price is SERVER-CONTROLLED: checkout always reads
-/// the current DB price; any client-sent price is ignored (requirements #5/#29).
-/// No TenantId — derives through MenuCategory -> Menu -> Tenant.
-///
-/// Deletion policy: menu items are SOFT-deleted (IsDeleted) because historical
-/// OrderItems reference them; orders snapshot name/price so integrity survives.
-/// </summary>
 public class MenuItem : AuditableEntity, ISoftDeletable
 {
     public const int MaxNameLength = 150;
     public const int MaxDescriptionLength = 1000;
+    public const int MaxQuantityPerLine = 999;
+
+    private const decimal MaxPrice = 9999999999999999.99m;
 
     public Guid MenuCategoryId { get; private set; }
 
     public string Name { get; private set; } = null!;
     public string? Description { get; private set; }
 
-    /// <summary>Stored as decimal(18,4); currency inherited from tenant configuration in V1.</summary>
     public decimal Price { get; private set; }
-
     public string Currency { get; private set; } = Money.DefaultCurrency;
 
-    /// <summary>Optional image (FileMetadata row).</summary>
     public Guid? ImageFileId { get; private set; }
-
     public int DisplayOrder { get; private set; }
 
-    /// <summary>Kitchen availability toggle ("sold out").</summary>
     public bool IsAvailable { get; private set; } = true;
-
-    /// <summary>Admin visibility toggle (hidden from menus but retained).</summary>
     public bool IsActive { get; private set; } = true;
 
     public bool IsDeleted { get; set; }
     public DateTime? DeletedAt { get; set; }
 
     public MenuCategory Category { get; private set; } = null!;
+
+    private MenuItem()
+    {
+    }
 
     public static MenuItem Create(
         Guid menuCategoryId,
@@ -54,23 +46,17 @@ public class MenuItem : AuditableEntity, ISoftDeletable
         if (menuCategoryId == Guid.Empty)
             throw new DomainException("ITEM_CATEGORY_REQUIRED", "A menu item must belong to a category.");
 
-        if (string.IsNullOrWhiteSpace(name))
-            throw new DomainException("ITEM_NAME_REQUIRED", "Menu item name is required.");
-
-        if (name.Length > MaxNameLength)
-            throw new DomainException("ITEM_NAME_TOO_LONG", $"Menu item name exceeds {MaxNameLength} characters.");
-
-        if (description?.Length > MaxDescriptionLength)
-            throw new DomainException("ITEM_DESCRIPTION_TOO_LONG", "Menu item description is too long.");
-
-        if (price.Amount <= 0m)
-            throw new DomainException("ITEM_PRICE_INVALID", "Menu item price must be greater than zero.");
+        ValidateName(name);
+        ValidateDescription(description);
+        EnsureValidPrice(price);
+        ValidateDisplayOrder(displayOrder);
+        ValidateImageId(imageFileId);
 
         return new MenuItem
         {
             MenuCategoryId = menuCategoryId,
             Name = name.Trim(),
-            Description = description?.Trim(),
+            Description = NormalizeDescription(description),
             Price = price.Amount,
             Currency = price.Currency,
             ImageFileId = imageFileId,
@@ -92,54 +78,101 @@ public class MenuItem : AuditableEntity, ISoftDeletable
     {
         EnsureNotDeleted();
 
-        if (!string.IsNullOrWhiteSpace(name))
+        if (name is not null)
         {
-            if (name.Length > MaxNameLength)
-                throw new DomainException("ITEM_NAME_TOO_LONG", $"Menu item name exceeds {MaxNameLength} characters.");
+            ValidateName(name);
             Name = name.Trim();
         }
 
         if (description is not null)
         {
-            if (description.Length > MaxDescriptionLength)
-                throw new DomainException("ITEM_DESCRIPTION_TOO_LONG", "Menu item description is too long.");
-            Description = description.Trim();
+            ValidateDescription(description);
+            Description = NormalizeDescription(description);
         }
 
         if (price is not null)
         {
-            if (price.Amount <= 0m)
-                throw new DomainException("ITEM_PRICE_INVALID", "Menu item price must be greater than zero.");
+            EnsureValidPrice(price);
             Price = price.Amount;
             Currency = price.Currency;
         }
 
-        if (imageFileId is not null)
-            ImageFileId = imageFileId;
+        if (imageFileId.HasValue)
+            SetImage(imageFileId.Value);
 
         if (displayOrder.HasValue)
-            DisplayOrder = displayOrder.Value;
+            SetDisplayOrder(displayOrder.Value);
 
         if (isAvailable.HasValue)
-            IsAvailable = isAvailable.Value;
+            SetAvailability(isAvailable.Value);
 
         if (isActive.HasValue)
-            IsActive = isActive.Value;
+            SetActive(isActive.Value);
 
         UpdatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>Checkout gate: only active, available, non-deleted items can be ordered.</summary>
-    public bool CanBeOrdered => !IsDeleted && IsActive && IsAvailable;
+    public bool CanBeOrdered =>
+        !IsDeleted && IsActive && IsAvailable;
 
-    public Money GetCurrentPrice() => Money.New(Price, Currency);
+    public Money GetCurrentPrice() =>
+        Money.New(Price, Currency);
+
+    public void SetImage(Guid? imageFileId)
+    {
+        EnsureNotDeleted();
+        ValidateImageId(imageFileId);
+
+        if (ImageFileId == imageFileId)
+            return;
+
+        ImageFileId = imageFileId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetAvailability(bool isAvailable)
+    {
+        EnsureNotDeleted();
+
+        if (IsAvailable == isAvailable)
+            return;
+
+        IsAvailable = isAvailable;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetActive(bool isActive)
+    {
+        EnsureNotDeleted();
+
+        if (IsActive == isActive)
+            return;
+
+        IsActive = isActive;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void SetDisplayOrder(int displayOrder)
+    {
+        EnsureNotDeleted();
+        ValidateDisplayOrder(displayOrder);
+
+        if (DisplayOrder == displayOrder)
+            return;
+
+        DisplayOrder = displayOrder;
+        UpdatedAt = DateTime.UtcNow;
+    }
 
     public void SoftDelete()
     {
-        if (IsDeleted) return;
+        if (IsDeleted)
+            return;
+
         IsDeleted = true;
         DeletedAt = DateTime.UtcNow;
         IsActive = false;
+        IsAvailable = false;
         UpdatedAt = DateTime.UtcNow;
     }
 
@@ -147,5 +180,49 @@ public class MenuItem : AuditableEntity, ISoftDeletable
     {
         if (IsDeleted)
             throw new DomainException("ITEM_DELETED", "A deleted menu item cannot be modified.");
+    }
+
+    private static void ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("ITEM_NAME_REQUIRED", "Menu item name is required.");
+
+        if (name.Trim().Length > MaxNameLength)
+            throw new DomainException("ITEM_NAME_TOO_LONG", $"Menu item name cannot exceed {MaxNameLength} characters.");
+    }
+
+    private static void ValidateDescription(string? description)
+    {
+        if (description?.Trim().Length > MaxDescriptionLength)
+            throw new DomainException("ITEM_DESCRIPTION_TOO_LONG", "Menu item description cannot exceed 1000 characters.");
+    }
+
+    private static string? NormalizeDescription(string? description) =>
+        string.IsNullOrWhiteSpace(description) ? null : description.Trim();
+
+    private static void ValidateDisplayOrder(int displayOrder)
+    {
+        if (displayOrder < 0)
+            throw new DomainException("ITEM_ORDER_INVALID", "Display order cannot be negative.");
+    }
+
+    private static void ValidateImageId(Guid? imageFileId)
+    {
+        if (imageFileId == Guid.Empty)
+            throw new DomainException("ITEM_IMAGE_INVALID", "Image file ID cannot be empty.");
+    }
+
+    private static void EnsureValidPrice(Money price)
+    {
+        ArgumentNullException.ThrowIfNull(price);
+
+        if (price.Amount < 0m || price.Amount > MaxPrice)
+            throw new DomainException("ITEM_PRICE_INVALID", "Menu item price is outside the supported range.");
+
+        if (decimal.Round(price.Amount, 2) != price.Amount)
+            throw new DomainException("ITEM_PRICE_PRECISION", "Menu item price supports at most two decimal places.");
+
+        if (string.IsNullOrWhiteSpace(price.Currency))
+            throw new DomainException("ITEM_CURRENCY_REQUIRED", "Menu item currency is required.");
     }
 }

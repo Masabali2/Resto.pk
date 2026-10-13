@@ -1,27 +1,19 @@
+
 using RestaurantSaaS.Domain.Common;
+using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 
 namespace RestaurantSaaS.Domain.Entities.Websites;
 
-/// <summary>
-/// The public website of one restaurant. Slug uniqueness is TENANT-AWARE:
-/// UNIQUE(TenantId, Slug) — two tenants may both use "menu", but one tenant
-/// cannot have duplicate slugs. Public resolution (subdomain/path -> tenant ->
-/// website) relies on this index.
-///
-/// Composite FK (TenantId, RestaurantId) -> Restaurants(TenantId, Id) prevents
-/// cross-tenant website->restaurant references at the database level.
-/// </summary>
 public class Website : AuditableEntity, ITenantOwned
 {
     public Guid TenantId { get; set; }
     public Guid RestaurantId { get; private set; }
     public Guid WebsiteTemplateId { get; private set; }
+    public Guid? PublishedConfigurationId { get; private set; }
 
     public string Name { get; private set; } = null!;
-
-    /// <summary>URL segment under the tenant scope. Unique per tenant.</summary>
     public string Slug { get; private set; } = null!;
 
     public WebsiteStatus Status { get; private set; } = WebsiteStatus.Draft;
@@ -30,7 +22,13 @@ public class Website : AuditableEntity, ITenantOwned
 
     public Restaurant Restaurant { get; private set; } = null!;
     public WebsiteTemplate Template { get; private set; } = null!;
-    public ICollection<WebsiteConfiguration> Configurations { get; set; } = new List<WebsiteConfiguration>();
+
+    public ICollection<WebsiteConfiguration> Configurations { get; private set; }
+        = new List<WebsiteConfiguration>();
+
+    private Website()
+    {
+    }
 
     public static Website Create(
         Guid tenantId,
@@ -48,10 +46,7 @@ public class Website : AuditableEntity, ITenantOwned
         if (websiteTemplateId == Guid.Empty)
             throw new DomainException("WEBSITE_TEMPLATE_REQUIRED", "A website requires a template.");
 
-        if (string.IsNullOrWhiteSpace(name))
-            throw new DomainException("WEBSITE_NAME_REQUIRED", "Website name is required.");
-
-        var normalizedSlug = NormalizeSlug(slug);
+        ValidateName(name);
 
         return new Website
         {
@@ -59,7 +54,7 @@ public class Website : AuditableEntity, ITenantOwned
             RestaurantId = restaurantId,
             WebsiteTemplateId = websiteTemplateId,
             Name = name.Trim(),
-            Slug = normalizedSlug,
+            Slug = NormalizeSlug(slug),
             Status = WebsiteStatus.Draft,
             IsPublished = false,
             CreatedAt = DateTime.UtcNow
@@ -68,31 +63,57 @@ public class Website : AuditableEntity, ITenantOwned
 
     public void UpdateProfile(string? name, string? slug, Guid? templateId)
     {
-        if (!string.IsNullOrWhiteSpace(name))
+        if (name is not null)
+        {
+            ValidateName(name);
             Name = name.Trim();
+        }
 
-        if (!string.IsNullOrWhiteSpace(slug))
+        if (slug is not null)
             Slug = NormalizeSlug(slug);
 
-        if (templateId is { } tid && tid != Guid.Empty)
-            WebsiteTemplateId = tid;
+        if (templateId.HasValue)
+        {
+            if (templateId.Value == Guid.Empty)
+                throw new DomainException("WEBSITE_TEMPLATE_INVALID", "Template ID cannot be empty.");
+
+            WebsiteTemplateId = templateId.Value;
+        }
 
         UpdatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>
-    /// Publishes the website with the given draft configuration snapshot.
-    /// Rule: publishing requires an existing draft configuration.
-    /// </summary>
-    public void Publish(WebsiteConfiguration draftConfiguration, DateTime utcNow)
+    public void Publish(
+        WebsiteConfiguration draftConfiguration,
+        WebsiteTemplate template,
+        DateTime utcNow)
     {
         ArgumentNullException.ThrowIfNull(draftConfiguration);
+        ArgumentNullException.ThrowIfNull(template);
+
+        if (draftConfiguration.WebsiteId != Id)
+            throw new DomainException(
+                "WEBSITE_CONFIGURATION_MISMATCH",
+                "The configuration must belong to this website.");
 
         if (!draftConfiguration.IsDraft)
-            throw new DomainException("WEBSITE_PUBLISH_NO_DRAFT",
+            throw new DomainException(
+                "WEBSITE_PUBLISH_NO_DRAFT",
                 "Publishing requires a draft configuration version.");
 
+        if (template.Id != WebsiteTemplateId)
+            throw new DomainException(
+                "WEBSITE_TEMPLATE_MISMATCH",
+                "The supplied template does not belong to this website.");
+
+        if (!template.IsActive)
+            throw new DomainException(
+                "WEBSITE_TEMPLATE_INACTIVE",
+                "An inactive template cannot be published.");
+
         draftConfiguration.Publish(utcNow);
+
+        PublishedConfigurationId = draftConfiguration.Id;
         Status = WebsiteStatus.Published;
         IsPublished = true;
         PublishedAt = utcNow;
@@ -102,10 +123,13 @@ public class Website : AuditableEntity, ITenantOwned
     public void Unpublish(DateTime utcNow)
     {
         if (!IsPublished)
-            throw new DomainException("WEBSITE_NOT_PUBLISHED", "Website is not published.");
+            throw new DomainException(
+                "WEBSITE_NOT_PUBLISHED",
+                "Website is not currently published.");
 
         Status = WebsiteStatus.Unpublished;
         IsPublished = false;
+        PublishedConfigurationId = null;
         UpdatedAt = utcNow;
     }
 
@@ -114,16 +138,32 @@ public class Website : AuditableEntity, ITenantOwned
         if (string.IsNullOrWhiteSpace(slug))
             throw new DomainException("WEBSITE_SLUG_REQUIRED", "Website slug is required.");
 
-        var normalized = new string(slug.ToLowerInvariant()
-            .Select(c => char.IsLetterOrDigit(c) || c == '-' ? c : '-')
-            .ToArray())
-            .Trim('-');
+        var normalized = new string(
+            slug.Trim()
+                .ToLowerInvariant()
+                .Select(c => char.IsAsciiLetterOrDigit(c) || c == '-' ? c : '-')
+                .ToArray());
 
-        normalized = string.Join('-', normalized.Split('-', StringSplitOptions.RemoveEmptyEntries));
+        normalized = string.Join(
+            '-',
+            normalized.Split('-', StringSplitOptions.RemoveEmptyEntries));
 
         if (normalized.Length is < 2 or > 100)
-            throw new DomainException("WEBSITE_SLUG_INVALID", "Website slug must be 2-100 characters.");
+            throw new DomainException(
+                "WEBSITE_SLUG_INVALID",
+                "Website slug must be 2-100 characters and contain valid URL characters.");
 
         return normalized;
+    }
+
+    private static void ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("WEBSITE_NAME_REQUIRED", "Website name is required.");
+
+        if (name.Trim().Length > 150)
+            throw new DomainException(
+                "WEBSITE_NAME_TOO_LONG",
+                "Website name cannot exceed 150 characters.");
     }
 }

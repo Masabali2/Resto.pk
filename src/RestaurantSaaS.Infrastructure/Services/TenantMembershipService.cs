@@ -5,15 +5,7 @@ using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
-/// <summary>
-/// Authoritative membership source. Reads StaffMemberships joined to Tenants and
-/// Roles on every call — JWT claims are never consulted, so role changes take
-/// effect immediately regardless of token age (Phase-2 requirement #13).
-///
-/// Membership queries run with tenant filters DISABLED because the caller is
-/// asking "does user X belong to tenant Y" for an EXPLICIT tenant id — this is
-/// the check that ESTABLISHES trust in a tenant, not one that assumes it.
-/// </summary>
+
 public sealed class TenantMembershipService(ApplicationDbContext db) : ITenantMembershipService
 {
     public async Task<TenantMembershipInfo?> GetMembershipAsync(

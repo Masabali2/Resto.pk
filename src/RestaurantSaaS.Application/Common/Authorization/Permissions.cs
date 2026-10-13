@@ -14,6 +14,16 @@ public static class Permissions
     public const string MenuUpdate = "Menu.Update";
     public const string MenuDelete = "Menu.Delete";
 
+    public const string MenuCategoryView = "MenuCategory.View";
+    public const string MenuCategoryCreate = "MenuCategory.Create";
+    public const string MenuCategoryUpdate = "MenuCategory.Update";
+    public const string MenuCategoryDelete = "MenuCategory.Delete";
+
+    public const string MenuItemView = "MenuItem.View";
+    public const string MenuItemCreate = "MenuItem.Create";
+    public const string MenuItemUpdate = "MenuItem.Update";
+    public const string MenuItemDelete = "MenuItem.Delete";
+
     public const string OrderView = "Order.View";
     public const string OrderCreate = "Order.Create";
     public const string OrderUpdate = "Order.Update";
@@ -63,6 +73,8 @@ public static class Permissions
             {
                 TenantView,
                 MenuView, MenuCreate, MenuUpdate, MenuDelete,
+                MenuCategoryView, MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryDelete,
+                MenuItemView, MenuItemCreate, MenuItemUpdate, MenuItemDelete,
                 OrderView, OrderCreate, OrderUpdate, OrderCancel,
                 StaffView, StaffInvite, StaffUpdate,
                 WebsiteView, WebsiteUpdate, WebsitePublish,
@@ -71,17 +83,17 @@ public static class Permissions
             [TenantRoles.Kitchen] = new HashSet<string>(StringComparer.Ordinal)
             {
                 OrderView, OrderUpdate, // preparation transitions only (validated by domain rules)
-                MenuView,
+                MenuView, MenuCategoryView, MenuItemView, MenuItemUpdate,
             },
             [TenantRoles.Cashier] = new HashSet<string>(StringComparer.Ordinal)
             {
                 OrderView, OrderCreate, OrderUpdate, OrderCancel,
-                MenuView,
+                MenuView, MenuCategoryView, MenuItemView,
             },
             [TenantRoles.Waiter] = new HashSet<string>(StringComparer.Ordinal)
             {
                 OrderView, OrderCreate,
-                MenuView,
+                MenuView, MenuCategoryView, MenuItemView,
             },
         };
 
@@ -90,6 +102,8 @@ public static class Permissions
             [
                 TenantView, TenantUpdate,
                 MenuView, MenuCreate, MenuUpdate, MenuDelete,
+                MenuCategoryView, MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryDelete,
+                MenuItemView, MenuItemCreate, MenuItemUpdate, MenuItemDelete,
                 OrderView, OrderCreate, OrderUpdate, OrderCancel,
                 StaffView, StaffInvite, StaffUpdate, StaffRemove, StaffAssignRole,
                 WebsiteView, WebsiteUpdate, WebsitePublish,
