@@ -1,4 +1,5 @@
-using Microsoft.AspNetCore.Identity;
+
+using System.Reflection;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Interfaces;
@@ -20,19 +21,18 @@ using RestaurantSaaS.Domain.Entities.Websites;
 namespace RestaurantSaaS.Infrastructure.Persistence;
 
 /// <summary>
-/// Single database context for Identity + business schema.
+/// Main EF Core database context for ASP.NET Core Identity
+/// and restaurant SaaS business entities.
 ///
-/// TENANT ISOLATION LAYER (requirement #10, item 5): global query filters
-/// automatically hide other tenants' rows for every ITenantOwned entity and
-/// hide soft-deleted rows. Filters are bypassable ONLY via IgnoreQueryFilters
-/// which is reserved for platform-admin/system code paths (and audit/history
-/// reads) — never for ordinary tenant requests.
+/// Tenant-owned entities are filtered by the current tenant.
+/// Soft-deletable entities exclude deleted records.
+/// Dependent entities follow the visibility of their required parents.
 ///
-/// IMPORTANT: query filters are defense-in-depth, NOT the only mechanism.
-/// Ownership validation still happens in use cases, and writes are guarded by
-/// composite FKs + unique constraints at the database level.
+/// Query filters provide defense-in-depth, not complete authorization.
+/// Application use cases must validate ownership and permissions.
 /// </summary>
-public class ApplicationDbContext : IdentityDbContext<User, Role, Guid>
+public class ApplicationDbContext
+    : IdentityDbContext<User, Role, Guid>
 {
     private readonly ITenantContext _tenantContext;
     private readonly IDateTimeProvider _dateTimeProvider;
@@ -47,128 +47,202 @@ public class ApplicationDbContext : IdentityDbContext<User, Role, Guid>
         _dateTimeProvider = dateTimeProvider;
     }
 
-    // ---- Tenant root & membership ----
+    // Tenant and membership
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<StaffMembership> StaffMemberships => Set<StaffMembership>();
 
-    // ---- Restaurant ----
+    // Restaurant
     public DbSet<Restaurant> Restaurants => Set<Restaurant>();
     public DbSet<RestaurantAsset> RestaurantAssets => Set<RestaurantAsset>();
 
-    // ---- Subscription ----
+    // Subscription
     public DbSet<SubscriptionPlan> SubscriptionPlans => Set<SubscriptionPlan>();
     public DbSet<Subscription> Subscriptions => Set<Subscription>();
 
-    // ---- Menu ----
+    // Menu
     public DbSet<Menu> Menus => Set<Menu>();
     public DbSet<MenuCategory> MenuCategories => Set<MenuCategory>();
     public DbSet<MenuItem> MenuItems => Set<MenuItem>();
 
-    // ---- Website ----
+    // Website
     public DbSet<WebsiteTemplate> WebsiteTemplates => Set<WebsiteTemplate>();
     public DbSet<Website> Websites => Set<Website>();
-    public DbSet<WebsiteConfiguration> WebsiteConfigurations => Set<WebsiteConfiguration>();
+    public DbSet<WebsiteConfiguration> WebsiteConfigurations
+        => Set<WebsiteConfiguration>();
 
-    // ---- Customer / Cart / Order ----
+    // Customer, cart, and order
     public DbSet<Customer> Customers => Set<Customer>();
     public DbSet<Cart> Carts => Set<Cart>();
     public DbSet<CartItem> CartItems => Set<CartItem>();
     public DbSet<Order> Orders => Set<Order>();
     public DbSet<OrderItem> OrderItems => Set<OrderItem>();
-    public DbSet<OrderStatusHistory> OrderStatusHistories => Set<OrderStatusHistory>();
+    public DbSet<OrderStatusHistory> OrderStatusHistories
+        => Set<OrderStatusHistory>();
 
-    // ---- Platform services ----
+    // Platform services
     public DbSet<Notification> Notifications => Set<Notification>();
     public DbSet<FileMetadata> Files => Set<FileMetadata>();
     public DbSet<QRCode> QRCodes => Set<QRCode>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
 
     /// <summary>
-    /// When true (platform-admin system scope), tenant filters are disabled for
-    /// this context instance. Set exclusively by authorized platform code paths.
+    /// Enables tenant-filter bypass for explicitly authorized system operations.
+    /// This must never be controlled directly by untrusted request input.
     /// </summary>
     public bool DisableTenantFilters { get; set; }
 
     /// <summary>
-    /// Ambient tenant used by global query filters. The filter expression must
-    /// reference a FIELD (not a scoped service property) to avoid capturing the
-    /// scoped ITenantContext inside the singleton model — EF evaluates this
-    /// field per context instance at query time.
+    /// Reads the tenant from this context instance at query time.
     /// </summary>
-    private Guid? CurrentTenantId => DisableTenantFilters ? null : _tenantContext.TenantId;
+    private Guid? CurrentTenantId =>
+        DisableTenantFilters ? null : _tenantContext.TenantId;
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
-        // Identity tables first (AspNetUsers, AspNetRoles, AspNetUserRoles,
-        // AspNetUserClaims, AspNetRoleClaims, AspNetUserLogins, AspNetUserTokens).
         base.OnModelCreating(builder);
 
-        // One IEntityTypeConfiguration<T> per entity — no monolithic OnModelCreating.
-        builder.ApplyConfigurationsFromAssembly(typeof(ApplicationDbContext).Assembly);
+        // Apply all IEntityTypeConfiguration<TEntity> classes.
+        builder.ApplyConfigurationsFromAssembly(
+            typeof(ApplicationDbContext).Assembly);
 
+        // Apply filters to tenant-owned and/or soft-deletable entities.
         ApplyTenantAndSoftDeleteQueryFilters(builder);
+
+        // Ensure dependent entities follow their required parent's visibility.
+        ApplyDependentEntityQueryFilters(builder);
     }
 
-    /// <summary>
-    /// Applies global query filters AFTER configurations so they compose with
-    /// any relationship-level filters EF generated. Each entity gets exactly
-    /// ONE filter combining tenant isolation + soft deletion.
-    /// </summary>
     private void ApplyTenantAndSoftDeleteQueryFilters(ModelBuilder builder)
     {
         foreach (var entityType in builder.Model.GetEntityTypes())
         {
-            var isTenantOwned = typeof(ITenantOwned).IsAssignableFrom(entityType.ClrType);
-            var isSoftDeletable = typeof(ISoftDeletable).IsAssignableFrom(entityType.ClrType);
+            var entityClrType = entityType.ClrType;
+
+            // Skip Identity entities and other non-business entities.
+            if (!typeof(BaseEntity).IsAssignableFrom(entityClrType))
+                continue;
+
+            var isTenantOwned =
+                typeof(ITenantOwned).IsAssignableFrom(entityClrType);
+
+            var isSoftDeletable =
+                typeof(ISoftDeletable).IsAssignableFrom(entityClrType);
 
             if (!isTenantOwned && !isSoftDeletable)
                 continue;
 
             var methodName = (isTenantOwned, isSoftDeletable) switch
             {
-                (true, true) => nameof(ApplyTenantAndSoftDeleteFilter),
-                (true, false) => nameof(ApplyTenantFilter),
-                (false, true) => nameof(ApplySoftDeleteFilter),
-                _ => null
+                (true, true) =>
+                    nameof(ApplyTenantAndSoftDeleteFilter),
+
+                (true, false) =>
+                    nameof(ApplyTenantFilter),
+
+                (false, true) =>
+                    nameof(ApplySoftDeleteFilter),
+
+                _ => throw new InvalidOperationException(
+                    $"Unsupported filter configuration for {entityClrType.Name}.")
             };
 
-            var method = typeof(ApplicationDbContext)
-                .GetMethod(methodName!, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
-                .MakeGenericMethod(entityType.ClrType);
-            method.Invoke(this, [builder]);
+            var method = typeof(ApplicationDbContext).GetMethod(
+                methodName,
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            if (method is null)
+            {
+                throw new InvalidOperationException(
+                    $"Could not find query filter method '{methodName}'.");
+            }
+
+            method
+                .MakeGenericMethod(entityClrType)
+                .Invoke(this, [builder]);
         }
+    }
+
+    /// <summary>
+    /// Applies compatible visibility rules to dependent entities whose
+    /// required parent already has a global query filter.
+    ///
+    /// These predicates assume the named parent navigation properties exist
+    /// and each parent implements the stated tenant/deletion properties.
+    /// </summary>
+    private void ApplyDependentEntityQueryFilters(ModelBuilder builder)
+    {
+        // CartItem -> Cart
+        builder.Entity<CartItem>().HasQueryFilter(item =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             item.Cart.TenantId == CurrentTenantId));
+
+        // OrderItem -> Order
+        builder.Entity<OrderItem>().HasQueryFilter(item =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             item.Order.TenantId == CurrentTenantId));
+
+        // OrderStatusHistory -> Order
+        builder.Entity<OrderStatusHistory>().HasQueryFilter(history =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             history.Order.TenantId == CurrentTenantId));
+
+        // RestaurantAsset -> Restaurant
+        builder.Entity<RestaurantAsset>().HasQueryFilter(asset =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             asset.Restaurant.TenantId == CurrentTenantId));
+
+        // WebsiteConfiguration -> Website
+        builder.Entity<WebsiteConfiguration>().HasQueryFilter(configuration =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             configuration.Website.TenantId == CurrentTenantId));
     }
 
     private void ApplyTenantFilter<TEntity>(ModelBuilder builder)
         where TEntity : BaseEntity, ITenantOwned
     {
-        // NOTE: HasQueryFilter is applied AFTER any soft-delete filter for the
-        // same entity on purpose — the soft-delete call below overwrites it with
-        // the COMBINED filter (ApplyTenantAndSoftDeleteFilter), so each entity
-        // ends up with exactly one composed predicate.
-        builder.Entity<TEntity>().HasQueryFilter(e =>
-            DisableTenantFilters || (CurrentTenantId != null && e.TenantId == CurrentTenantId));
+        builder.Entity<TEntity>().HasQueryFilter(entity =>
+            DisableTenantFilters ||
+            (CurrentTenantId != null &&
+             entity.TenantId == CurrentTenantId));
     }
 
     private void ApplySoftDeleteFilter<TEntity>(ModelBuilder builder)
         where TEntity : BaseEntity, ISoftDeletable
     {
-        builder.Entity<TEntity>().HasQueryFilter(e => !e.IsDeleted);
+        builder.Entity<TEntity>().HasQueryFilter(entity =>
+            !entity.IsDeleted);
     }
 
-    private void ApplyTenantAndSoftDeleteFilter<TEntity>(ModelBuilder builder)
+    private void ApplyTenantAndSoftDeleteFilter<TEntity>(
+        ModelBuilder builder)
         where TEntity : BaseEntity, ITenantOwned, ISoftDeletable
     {
-        builder.Entity<TEntity>().HasQueryFilter(e =>
-            !e.IsDeleted &&
-            (DisableTenantFilters || (CurrentTenantId != null && e.TenantId == CurrentTenantId)));
+        builder.Entity<TEntity>().HasQueryFilter(entity =>
+            !entity.IsDeleted &&
+            (DisableTenantFilters ||
+             (CurrentTenantId != null &&
+              entity.TenantId == CurrentTenantId)));
     }
 
-    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    // ------------------------------------------------------------
+    // Audit timestamps
+    // ------------------------------------------------------------
+
+    private void ApplyAuditStamps()
     {
         var now = _dateTimeProvider.UtcNow;
 
-        // Audit stamps are set server-side only — clients can never forge timestamps.
+        if (now.Kind != DateTimeKind.Utc)
+        {
+            throw new InvalidOperationException(
+                "IDateTimeProvider.UtcNow must return a UTC DateTime.");
+        }
+
         foreach (var entry in ChangeTracker.Entries<AuditableEntity>())
         {
             switch (entry.State)
@@ -179,11 +253,42 @@ public class ApplicationDbContext : IdentityDbContext<User, Role, Guid>
                     break;
 
                 case EntityState.Modified:
+                    // Creation timestamps are immutable after insertion.
+                    entry.Property(entity => entity.CreatedAt).IsModified = false;
                     entry.Entity.UpdatedAt = now;
                     break;
             }
         }
+    }
 
-        return await base.SaveChangesAsync(cancellationToken);
+    public override int SaveChanges()
+    {
+        return SaveChanges(acceptAllChangesOnSuccess: true);
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        ApplyAuditStamps();
+
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        CancellationToken cancellationToken = default)
+    {
+        return SaveChangesAsync(
+            acceptAllChangesOnSuccess: true,
+            cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        ApplyAuditStamps();
+
+        return base.SaveChangesAsync(
+            acceptAllChangesOnSuccess,
+            cancellationToken);
     }
 }

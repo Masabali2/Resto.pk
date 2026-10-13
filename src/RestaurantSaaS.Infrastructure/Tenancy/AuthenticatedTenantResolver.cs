@@ -2,7 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Infrastructure.Persistence;
-
+using Microsoft.AspNetCore.Http;
 namespace RestaurantSaaS.Infrastructure.Tenancy;
 
 /// <summary>

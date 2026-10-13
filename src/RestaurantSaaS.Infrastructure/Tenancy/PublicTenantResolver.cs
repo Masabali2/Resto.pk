@@ -2,18 +2,10 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Http;
 
 namespace RestaurantSaaS.Infrastructure.Tenancy;
 
-/// <summary>
-/// Resolves the tenant for PUBLIC customer traffic (unauthenticated).
-/// Candidates, in priority order:
-///   1. Subdomain label of the request host (pizza.saas.com -> "pizza")
-///   2. Explicit ?tenantSlug= query value on public endpoints only
-/// Resolution goes Slug -> Tenant(Active) and is fail-closed: an unknown or
-/// non-active slug yields null. Website/restaurant-level resolution builds on
-/// this in later phases (menu/order/public-website).
-/// </summary>
 public sealed class PublicTenantResolver(
     IHttpContextAccessor httpContextAccessor,
     ApplicationDbContext db,

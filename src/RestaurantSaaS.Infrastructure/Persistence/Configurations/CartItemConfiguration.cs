@@ -1,32 +1,64 @@
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RestaurantSaaS.Domain.Entities.Carts;
+using RestaurantSaaS.Domain.Entities.Menus;
 
 namespace RestaurantSaaS.Infrastructure.Persistence.Configurations;
 
-public sealed class CartItemConfiguration : IEntityTypeConfiguration<CartItem>
+public sealed class CartItemConfiguration
+    : IEntityTypeConfiguration<CartItem>
 {
     public void Configure(EntityTypeBuilder<CartItem> builder)
     {
-        builder.ToTable("CartItems");
+        builder.ToTable("CartItems", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_CartItems_Quantity",
+                "[Quantity] >= 1 AND [Quantity] <= 99");
+
+            table.HasCheckConstraint(
+                "CK_CartItems_UnitPrice",
+                "[UnitPrice] >= 0");
+        });
+
         builder.HasKey(i => i.Id);
 
-        builder.Property(i => i.UnitPrice).HasPrecision(18, 4);
-        builder.Property(i => i.Currency).HasMaxLength(3).IsFixedLength().IsRequired();
+        builder.Property(i => i.CartId)
+            .IsRequired();
 
-        // One line per menu item per cart; quantity merges into the existing line.
-        builder.HasIndex(i => new { i.CartId, i.MenuItemId }).IsUnique();
+        builder.Property(i => i.MenuItemId)
+            .IsRequired();
+
+        builder.Property(i => i.Quantity)
+            .IsRequired();
+
+        builder.Property(i => i.UnitPrice)
+            .HasPrecision(18, 2)
+            .IsRequired();
+
+        builder.Property(i => i.Currency)
+            .HasMaxLength(3)
+            .IsFixedLength()
+            .IsRequired();
+
+        builder.Property(i => i.CreatedAt)
+            .IsRequired();
+
+        builder.Property(i => i.UpdatedAt)
+            .IsRequired(false);
+
+        // One line per menu item in a cart.
+        builder.HasIndex(i => new { i.CartId, i.MenuItemId })
+            .IsUnique()
+            .HasDatabaseName("UX_CartItems_CartId_MenuItemId");
 
         builder.HasOne(i => i.Cart)
             .WithMany(c => c.Items)
             .HasForeignKey(i => i.CartId)
-            .OnDelete(DeleteBehavior.Cascade); // cart lines are transient, not historical
+            .OnDelete(DeleteBehavior.Cascade);
 
-        // Cross-tenant safety net: MenuItemId -> MenuItems with Restrict.
-        // The APPLICATION additionally verifies the item belongs to the cart's
-        // tenant/restaurant (query filters + explicit check); this FK prevents
-        // dangling references if an item is hard-purged.
-        builder.HasOne<RestaurantSaaS.Domain.Entities.Menus.MenuItem>()
+        builder.HasOne<MenuItem>()
             .WithMany()
             .HasForeignKey(i => i.MenuItemId)
             .OnDelete(DeleteBehavior.Restrict);

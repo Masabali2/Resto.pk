@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Identity;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Domain.Entities.Identity;
@@ -7,88 +8,69 @@ using RestaurantSaaS.Domain.Enums;
 
 namespace RestaurantSaaS.Infrastructure.Authorization;
 
-/// <summary>
-/// Single handler family for all tenant-scoped authorization. Answers the five
-/// questions from requirement #10: who is the user, which tenant is active,
-/// do they belong to it, what role do they hold there, does that role grant the
-/// requested permission. Membership + role are read from StaffMemberships on
-/// every evaluation (never from token claims).
-/// </summary>
-public sealed class TenantAuthorizationHandler(
+public sealed class TenantPermissionHandler(
     ICurrentUserService currentUser,
     ITenantContext tenantContext,
     ITenantMembershipService membershipService)
-    : AuthorizationHandler<TenantPermissionRequirement>,
-      AuthorizationHandler<TenantMemberRequirement>,
-      AuthorizationHandler<TenantOwnerRequirement>
+    : AuthorizationHandler<TenantPermissionRequirement>
 {
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
-        TenantPermissionRequirement requirement,
-        CancellationToken cancellationToken)
+        TenantPermissionRequirement requirement)
     {
-        if (!await HasActiveMembershipAsync(cancellationToken))
-            return;
-
-        var membership = await GetMembershipAsync(cancellationToken);
+        var membership = await TenantAuthorization.GetActiveMembershipAsync(
+            currentUser, tenantContext, membershipService, context.User);
         if (membership is null)
             return;
 
-        // Role name -> permission set from the single source of truth (Permissions.RolePermissions).
         if (Permissions.RolePermissions.TryGetValue(membership.RoleName, out var perms) &&
             perms.Contains(requirement.Permission))
         {
             context.Succeed(requirement);
         }
     }
+}
 
+public sealed class TenantMemberHandler(
+    ICurrentUserService currentUser,
+    ITenantContext tenantContext,
+    ITenantMembershipService membershipService)
+    : AuthorizationHandler<TenantMemberRequirement>
+{
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
-        TenantMemberRequirement requirement,
-        CancellationToken cancellationToken)
+        TenantMemberRequirement requirement)
     {
-        if (await HasActiveMembershipAsync(cancellationToken))
+        var membership = await TenantAuthorization.GetActiveMembershipAsync(
+            currentUser, tenantContext, membershipService, context.User);
+        if (membership is not null)
             context.Succeed(requirement);
-    }
-
-    protected override async Task HandleRequirementAsync(
-        AuthorizationHandlerContext context,
-        TenantOwnerRequirement requirement,
-        CancellationToken cancellationToken)
-    {
-        var membership = await GetMembershipAsync(cancellationToken);
-        if (membership?.RoleName == Permissions.TenantRoles.Owner)
-            context.Succeed(requirement);
-    }
-
-    private async Task<bool> HasActiveMembershipAsync(CancellationToken ct) =>
-        await GetMembershipAsync(ct) is not null;
-
-    private async Task<TenantMembershipInfo?> GetMembershipAsync(CancellationToken ct)
-    {
-        if (!currentUser.IsAuthenticated || currentUser.UserId is not { } userId)
-            return null;
-
-        if (!tenantContext.HasTenant)
-            return null;
-
-        var membership = await membershipService.GetMembershipAsync(userId, tenantContext.GetRequiredTenantId(), ct);
-
-        // Only ACTIVE memberships authorize. Invited/Suspended/Removed => fail closed.
-        return membership is not null && membership.Status == (int)MembershipStatus.Active
-            ? membership
-            : null;
     }
 }
 
-/// <summary>Platform-admin gate backed by GLOBAL Identity role membership (AspNetUserRoles), validated live.</summary>
+public sealed class TenantOwnerHandler(
+    ICurrentUserService currentUser,
+    ITenantContext tenantContext,
+    ITenantMembershipService membershipService)
+    : AuthorizationHandler<TenantOwnerRequirement>
+{
+    protected override async Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        TenantOwnerRequirement requirement)
+    {
+        var membership = await TenantAuthorization.GetActiveMembershipAsync(
+            currentUser, tenantContext, membershipService, context.User);
+        if (membership?.RoleName == Permissions.TenantRoles.Owner)
+            context.Succeed(requirement);
+    }
+}
+
 public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
     : AuthorizationHandler<PlatformAdminOnlyRequirement>
 {
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
-        PlatformAdminOnlyRequirement requirement,
-        CancellationToken cancellationToken)
+        PlatformAdminOnlyRequirement requirement)
     {
         if (context.User.Identity?.IsAuthenticated != true)
             return;
@@ -107,3 +89,24 @@ public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
 }
 
 public sealed class PlatformAdminOnlyRequirement : IAuthorizationRequirement;
+
+internal static class TenantAuthorization
+{
+    public static async Task<TenantMembershipInfo?> GetActiveMembershipAsync(
+        ICurrentUserService currentUser,
+        ITenantContext tenantContext,
+        ITenantMembershipService membershipService,
+        ClaimsPrincipal _)
+    {
+        if (!currentUser.IsAuthenticated || currentUser.UserId is not { } userId)
+            return null;
+
+        if (!tenantContext.HasTenant)
+            return null;
+
+        var membership = await membershipService.GetMembershipAsync(userId, tenantContext.GetRequiredTenantId());
+        return membership is not null && membership.Status == (int)MembershipStatus.Active
+            ? membership
+            : null;
+    }
+}

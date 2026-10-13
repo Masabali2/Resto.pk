@@ -2,6 +2,8 @@
 // in RestaurantSaaS.Domain/GlobalUsings.cs (singular entity names despite the
 // pluralized namespaces required by CS0542). Global usings do not flow across
 // assemblies, so this file re-exports them for Infrastructure.
+global using RestaurantSaaS.Domain.ValueObjects;
+
 global using Tenant = RestaurantSaaS.Domain.Entities.Tenants.Tenant;
 global using StaffMembership = RestaurantSaaS.Domain.Entities.Tenants.StaffMembership;
 global using Restaurant = RestaurantSaaS.Domain.Entities.Restaurants.Restaurant;

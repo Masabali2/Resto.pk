@@ -1,29 +1,66 @@
+
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
 using RestaurantSaaS.Domain.Entities.Customers;
 
 namespace RestaurantSaaS.Infrastructure.Persistence.Configurations;
 
-public sealed class CustomerConfiguration : IEntityTypeConfiguration<Customer>
+public sealed class CustomerConfiguration
+    : IEntityTypeConfiguration<Customer>
 {
     public void Configure(EntityTypeBuilder<Customer> builder)
     {
-        builder.ToTable("Customers");
+        builder.ToTable("Customers", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_Customers_IdentityRequired",
+                """
+                [Name] IS NOT NULL
+                OR [Phone] IS NOT NULL
+                OR [Email] IS NOT NULL
+                """);
+        });
+
         builder.HasKey(c => c.Id);
 
-        builder.Property(c => c.Name).HasMaxLength(200);
-        builder.Property(c => c.Phone).HasMaxLength(30);
-        builder.Property(c => c.Email).HasMaxLength(256);
+        builder.Property(c => c.TenantId)
+            .IsRequired();
 
-        // Lookup by contact within a tenant (duplicate detection at checkout).
-        builder.HasIndex(c => new { c.TenantId, c.Phone });
-        builder.HasIndex(c => new { c.TenantId, c.Email });
+        builder.Property(c => c.Name)
+            .HasMaxLength(Customer.MaxNameLength);
+
+        builder.Property(c => c.Phone)
+            .HasMaxLength(Customer.MaxPhoneLength);
+
+        builder.Property(c => c.Email)
+            .HasMaxLength(Customer.MaxEmailLength);
+
+        builder.Property(c => c.IsDeleted)
+            .IsRequired()
+            .HasDefaultValue(false);
+
+        builder.Property(c => c.DeletedAt)
+            .IsRequired(false);
+
+        builder.Property(c => c.CreatedAt)
+            .IsRequired();
+
+        builder.Property(c => c.UpdatedAt)
+            .IsRequired(false);
+
+        // Contact lookups during checkout or customer management.
+        // Filtered indexes exclude deleted records.
+        builder.HasIndex(c => new { c.TenantId, c.Phone })
+            .HasDatabaseName("IX_Customers_TenantId_Phone")
+            .HasFilter("[Phone] IS NOT NULL AND [IsDeleted] = 0");
+
+        builder.HasIndex(c => new { c.TenantId, c.Email })
+            .HasDatabaseName("IX_Customers_TenantId_Email")
+            .HasFilter("[Email] IS NOT NULL AND [IsDeleted] = 0");
 
         builder.HasOne(c => c.Tenant)
             .WithMany()
             .HasForeignKey(c => c.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
-        // Soft-deleted customers remain for order history; orders snapshot the
-        // customer fields anyway, so no cascade is ever needed.
     }
 }
