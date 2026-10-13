@@ -80,9 +80,7 @@ public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
             return;
 
         var user = await userManager.FindByIdAsync(id.ToString());
-        if (user is not null &&
-            await userManager.IsInRoleAsync(user, Permissions.PlatformRoles.PlatformAdmin))
-        {
+        if (user is not null && await userManager.IsInRoleAsync(user, Permissions.PlatformRoles.PlatformAdmin))
             context.Succeed(requirement);
         }
     }

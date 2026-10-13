@@ -28,3 +28,11 @@ global using QRCode = RestaurantSaaS.Domain.Entities.QRCodes.QRCode;
 global using AuditLog = RestaurantSaaS.Domain.Entities.Audit.AuditLog;
 global using AppUser = RestaurantSaaS.Domain.Entities.Identity.User;
 global using AppRole = RestaurantSaaS.Domain.Entities.Identity.Role;
+
+// Application-layer abstractions re-exported for Infrastructure (global usings do not cross assemblies)
+global using RestaurantSaaS.Application.Common.Interfaces;
+global using RestaurantSaaS.Application.Common.Models;
+
+// ASP.NET Core ambient accessors used by hosted implementations
+global using IHttpContextAccessor = Microsoft.AspNetCore.Http.IHttpContextAccessor;
+
