@@ -1,0 +1,4 @@
+/workspace/src/RestaurantSaaS.Domain/obj/Debug/net10.0/RestaurantSaaS.Domain.GeneratedMSBuildEditorConfig.editorconfig
+/workspace/src/RestaurantSaaS.Domain/obj/Debug/net10.0/RestaurantSaaS.Domain.AssemblyInfoInputs.cache
+/workspace/src/RestaurantSaaS.Domain/obj/Debug/net10.0/RestaurantSaaS.Domain.AssemblyInfo.cs
+/workspace/src/RestaurantSaaS.Domain/obj/Debug/net10.0/RestaurantSaaS.Domain.csproj.CoreCompileInputs.cache
