@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Domain.Entities.Identity;
@@ -8,11 +9,12 @@ using RestaurantSaaS.Domain.Enums;
 namespace RestaurantSaaS.Infrastructure.Authorization;
 
 /// <summary>
-/// Single handler family for all tenant-scoped authorization. Answers the five
-/// questions from requirement #10: who is the user, which tenant is active,
-/// do they belong to it, what role do they hold there, does that role grant the
-/// requested permission. Membership + role are read from StaffMemberships on
-/// every evaluation (never from token claims).
+/// Single handler covering all three tenant-scoped requirements. Answers the
+/// five questions from requirement #10: who is the user, which tenant is active,
+/// do they belong to it, what role do they hold there, does that role grant what
+/// is requested. Membership + role are read from StaffMemberships on EVERY
+/// evaluation — never from (possibly stale) JWT claims. Fail closed everywhere.
+/// Registered once as IAuthorizationHandler for all three requirement types.
 /// </summary>
 public sealed class TenantAuthorizationHandler(
     ICurrentUserService currentUser,
@@ -25,12 +27,9 @@ public sealed class TenantAuthorizationHandler(
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         TenantPermissionRequirement requirement,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        if (!await HasActiveMembershipAsync(cancellationToken))
-            return;
-
-        var membership = await GetMembershipAsync(cancellationToken);
+        var membership = await GetActiveMembershipAsync(cancellationToken);
         if (membership is null)
             return;
 
@@ -45,26 +44,23 @@ public sealed class TenantAuthorizationHandler(
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         TenantMemberRequirement requirement,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        if (await HasActiveMembershipAsync(cancellationToken))
+        if (await GetActiveMembershipAsync(cancellationToken) is not null)
             context.Succeed(requirement);
     }
 
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         TenantOwnerRequirement requirement,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
-        var membership = await GetMembershipAsync(cancellationToken);
+        var membership = await GetActiveMembershipAsync(cancellationToken);
         if (membership?.RoleName == Permissions.TenantRoles.Owner)
             context.Succeed(requirement);
     }
 
-    private async Task<bool> HasActiveMembershipAsync(CancellationToken ct) =>
-        await GetMembershipAsync(ct) is not null;
-
-    private async Task<TenantMembershipInfo?> GetMembershipAsync(CancellationToken ct)
+    private async Task<TenantMembershipInfo?> GetActiveMembershipAsync(CancellationToken ct)
     {
         if (!currentUser.IsAuthenticated || currentUser.UserId is not { } userId)
             return null;
@@ -82,13 +78,13 @@ public sealed class TenantAuthorizationHandler(
 }
 
 /// <summary>Platform-admin gate backed by GLOBAL Identity role membership (AspNetUserRoles), validated live.</summary>
-public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
+public sealed class PlatformAdminOnlyHandler(Microsoft.AspNetCore.Identity.UserManager<User> userManager)
     : AuthorizationHandler<PlatformAdminOnlyRequirement>
 {
     protected override async Task HandleRequirementAsync(
         AuthorizationHandlerContext context,
         PlatformAdminOnlyRequirement requirement,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken = default)
     {
         if (context.User.Identity?.IsAuthenticated != true)
             return;
@@ -98,12 +94,7 @@ public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
             return;
 
         var user = await userManager.FindByIdAsync(id.ToString());
-        if (user is not null &&
-            await userManager.IsInRoleAsync(user, Permissions.PlatformRoles.PlatformAdmin))
-        {
+        if (user is not null && await userManager.IsInRoleAsync(user, Permissions.PlatformRoles.PlatformAdmin))
             context.Succeed(requirement);
-        }
     }
 }
-
-public sealed class PlatformAdminOnlyRequirement : IAuthorizationRequirement;
