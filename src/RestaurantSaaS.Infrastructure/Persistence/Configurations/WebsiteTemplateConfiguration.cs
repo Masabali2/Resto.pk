@@ -18,7 +18,7 @@ public sealed class WebsiteTemplateConfiguration : IEntityTypeConfiguration<Webs
         // Platform-owned catalogue keyed by a stable front-end lookup key.
         builder.HasIndex(t => t.TemplateKey).IsUnique();
 
-        builder.HasOne(t => t.PreviewImage)
+        builder.HasOne<FileMetadata>()
             .WithMany()
             .HasForeignKey(t => t.PreviewImageFileId)
             .OnDelete(DeleteBehavior.SetNull);

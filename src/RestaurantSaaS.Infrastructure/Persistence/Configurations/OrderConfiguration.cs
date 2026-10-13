@@ -42,7 +42,7 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasForeignKey(o => new { o.TenantId, o.RestaurantId })
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(o => o.Customer)
+        builder.HasOne<Customer>()
             .WithMany()
             .HasForeignKey(o => o.CustomerId)
             .OnDelete(DeleteBehavior.SetNull); // orders keep working after customer soft-delete

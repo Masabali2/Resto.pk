@@ -1,1 +1,5 @@
-(empty)
+bin/
+obj/
+*.user
+.vs/
+appsettings.Production.json

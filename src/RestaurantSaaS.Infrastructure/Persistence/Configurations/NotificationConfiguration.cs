@@ -19,7 +19,7 @@ public sealed class NotificationConfiguration : IEntityTypeConfiguration<Notific
         builder.HasIndex(n => new { n.TenantId, n.UserId, n.IsRead });
         builder.HasIndex(n => new { n.TenantId, n.CreatedAt });
 
-        builder.HasOne(n => n.Tenant)
+        builder.HasOne<Tenant>()
             .WithMany()
             .HasForeignKey(n => n.TenantId)
             .OnDelete(DeleteBehavior.Cascade); // notifications are disposable data

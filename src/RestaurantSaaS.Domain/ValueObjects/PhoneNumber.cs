@@ -29,7 +29,7 @@ public sealed class PhoneNumber : IEquatable<PhoneNumber>
         if (!Pattern.IsMatch(raw.Trim()))
             throw new DomainException("PHONE_INVALID", "Phone number format is not valid.");
 
-        var plus = raw.Trim().StartsWith('+', StringComparison.Ordinal);
+        var plus = raw.Trim().StartsWith("+", StringComparison.Ordinal);
         var digits = new string(raw.Where(char.IsDigit).ToArray());
 
         if (digits.Length is < 7 or > 15) // E.164 limit

@@ -19,16 +19,14 @@ public sealed class RestaurantConfiguration : IEntityTypeConfiguration<Restauran
         builder.Property(r => r.Country).HasMaxLength(100);
         builder.Property(r => r.TimeZone).HasMaxLength(64).IsRequired();
 
-        // Address value object -> owned columns (no separate table).
-        builder.OwnsOne(r => r.Address, a =>
-        {
-            a.Property(x => x.Line1).HasMaxLength(200).HasColumnName("AddressLine1");
-            a.Property(x => x.Line2).HasMaxLength(200).HasColumnName("AddressLine2");
-            a.Property(x => x.City).HasMaxLength(100).HasColumnName("AddressCity");
-            a.Property(x => x.State).HasMaxLength(100).HasColumnName("AddressState");
-            a.Property(x => x.PostalCode).HasMaxLength(20).HasColumnName("AddressPostalCode");
-            a.Property(x => x.Country).HasMaxLength(100).HasColumnName("AddressCountry");
-        });
+        // Address value object is flattened by the entity itself into scalar
+        // columns (AddressLine1/City/Country...) — see Restaurant.Create.
+        // The DB schema therefore has no owned-entity table; only max lengths
+        // are declared here.
+        builder.Property(r => r.AddressLine1).HasMaxLength(200).IsRequired();
+        builder.Property(r => r.AddressLine2).HasMaxLength(200);
+        builder.Property(r => r.City).HasMaxLength(100).IsRequired();
+        builder.Property(r => r.Country).HasMaxLength(100).IsRequired();
 
         builder.HasIndex(r => r.TenantId);
         builder.HasIndex(r => new { r.TenantId, r.Status });

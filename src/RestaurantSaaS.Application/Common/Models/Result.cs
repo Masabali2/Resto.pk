@@ -1,13 +1,13 @@
 namespace RestaurantSaaS.Application.Common.Models;
 
 /// <summary>Lightweight functional result for use cases that must not throw on expected failures.</summary>
-public sealed class Result
+public class Result
 {
     public bool IsSuccess { get; }
     public string? Error { get; }
     public string? ErrorCode { get; }
 
-    private Result(bool isSuccess, string? errorCode, string? error)
+    protected Result(bool isSuccess, string? errorCode, string? error)
     {
         IsSuccess = isSuccess;
         ErrorCode = errorCode;

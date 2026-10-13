@@ -164,7 +164,7 @@ public class ApplicationDbContext : IdentityDbContext<User, Role, Guid>
             (DisableTenantFilters || (CurrentTenantId != null && e.TenantId == CurrentTenantId)));
     }
 
-    protected override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var now = _dateTimeProvider.UtcNow;
 

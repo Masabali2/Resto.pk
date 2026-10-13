@@ -27,9 +27,9 @@ public class Tenant : AuditableEntity, ISoftDeletable
     public DateTime? DeletedAt { get; set; }
 
     // Navigation properties
-    public ICollection<Restaurant.Restaurant> Restaurants { get; set; } = new List<Restaurant.Restaurant>();
+    public ICollection<Restaurant> Restaurants { get; set; } = new List<Restaurant>();
     public ICollection<StaffMembership> StaffMemberships { get; set; } = new List<StaffMembership>();
-    public ICollection<Subscription.Subscription> Subscriptions { get; set; } = new List<Subscription.Subscription>();
+    public ICollection<Subscription> Subscriptions { get; set; } = new List<Subscription>();
 
     /// <summary>
     /// Factory for the onboarding use case. Slug uniqueness is enforced at the

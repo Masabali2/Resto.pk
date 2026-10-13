@@ -23,9 +23,11 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
             .HasForeignKey(c => c.TenantId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        builder.HasOne(c => c.Customer)
+        // No Customer navigation on the entity (keep domain lean); configure
+        // the FK by shadow lambda — losing a customer must not destroy carts.
+        builder.HasOne<Customer>()
             .WithMany()
             .HasForeignKey(c => c.CustomerId)
-            .OnDelete(DeleteBehavior.SetNull); // losing a customer must not destroy carts
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }
