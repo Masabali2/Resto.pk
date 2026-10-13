@@ -1,3 +1,4 @@
+
 using RestaurantSaaS.Domain.Common;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
@@ -5,32 +6,25 @@ using RestaurantSaaS.Domain.ValueObjects;
 
 namespace RestaurantSaaS.Domain.Entities.Subscriptions;
 
-/// <summary>
-/// Platform-defined SaaS plan (catalog). NOT tenant-owned — shared across all
-/// tenants, therefore intentionally has no TenantId (requirement #38).
-/// Limits (MaxStaff/MaxMenuItems/MaxOrdersPerMonth) are enforced by the
-/// subscription-limit checks in the application layer.
-/// </summary>
 public class SubscriptionPlan : AuditableEntity
 {
     public string Name { get; private set; } = null!;
     public string? Description { get; private set; }
 
-    /// <summary>Price stored as decimal column; Money VO used at the API boundary.</summary>
     public decimal Price { get; private set; }
-
-    /// <summary>ISO currency code of <see cref="Price"/>.</summary>
     public string Currency { get; private set; } = Money.DefaultCurrency;
 
     public BillingInterval BillingInterval { get; private set; }
 
-    /// <summary>0 means unlimited.</summary>
     public int MaxStaff { get; private set; }
-
     public int MaxMenuItems { get; private set; }
     public int MaxOrdersPerMonth { get; private set; }
 
     public bool IsActive { get; private set; } = true;
+
+    private SubscriptionPlan()
+    {
+    }
 
     public static SubscriptionPlan Create(
         string name,
@@ -42,15 +36,35 @@ public class SubscriptionPlan : AuditableEntity
         string? description = null)
     {
         if (string.IsNullOrWhiteSpace(name))
-            throw new DomainException("PLAN_NAME_REQUIRED", "Plan name is required.");
+            throw new DomainException(
+                "PLAN_NAME_REQUIRED",
+                "Plan name is required.");
+
+        ArgumentNullException.ThrowIfNull(price);
+
+        if (name.Trim().Length > 100)
+            throw new DomainException(
+                "PLAN_NAME_TOO_LONG",
+                "Plan name cannot exceed 100 characters.");
 
         if (maxStaff < 0 || maxMenuItems < 0 || maxOrdersPerMonth < 0)
-            throw new DomainException("PLAN_LIMITS_INVALID", "Plan limits cannot be negative (use 0 for unlimited).");
+            throw new DomainException(
+                "PLAN_LIMITS_INVALID",
+                "Plan limits cannot be negative. Use 0 for unlimited.");
+
+        if (!Enum.IsDefined(billingInterval))
+            throw new DomainException(
+                "PLAN_BILLING_INTERVAL_INVALID",
+                "The specified billing interval is invalid.");
+
+        var now = DateTime.UtcNow;
 
         return new SubscriptionPlan
         {
             Name = name.Trim(),
-            Description = description?.Trim(),
+            Description = string.IsNullOrWhiteSpace(description)
+                ? null
+                : description.Trim(),
             Price = price.Amount,
             Currency = price.Currency,
             BillingInterval = billingInterval,
@@ -58,14 +72,26 @@ public class SubscriptionPlan : AuditableEntity
             MaxMenuItems = maxMenuItems,
             MaxOrdersPerMonth = maxOrdersPerMonth,
             IsActive = true,
-            CreatedAt = DateTime.UtcNow
+            CreatedAt = now
         };
     }
 
-    public void UpdateLimits(int maxStaff, int maxMenuItems, int maxOrdersPerMonth)
+    public void UpdateLimits(
+        int maxStaff,
+        int maxMenuItems,
+        int maxOrdersPerMonth)
     {
         if (maxStaff < 0 || maxMenuItems < 0 || maxOrdersPerMonth < 0)
-            throw new DomainException("PLAN_LIMITS_INVALID", "Plan limits cannot be negative (use 0 for unlimited).");
+            throw new DomainException(
+                "PLAN_LIMITS_INVALID",
+                "Plan limits cannot be negative. Use 0 for unlimited.");
+
+        if (MaxStaff == maxStaff &&
+            MaxMenuItems == maxMenuItems &&
+            MaxOrdersPerMonth == maxOrdersPerMonth)
+        {
+            return;
+        }
 
         MaxStaff = maxStaff;
         MaxMenuItems = maxMenuItems;
@@ -73,10 +99,16 @@ public class SubscriptionPlan : AuditableEntity
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public Money GetPrice() => Money.New(Price, Currency);
+    public Money GetPrice()
+    {
+        return Money.New(Price, Currency);
+    }
 
     public void SetActive(bool active)
     {
+        if (IsActive == active)
+            return;
+
         IsActive = active;
         UpdatedAt = DateTime.UtcNow;
     }
