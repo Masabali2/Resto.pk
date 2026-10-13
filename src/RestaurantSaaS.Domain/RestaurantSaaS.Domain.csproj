@@ -6,4 +6,16 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <!--
+    ARCHITECTURAL DEBT NOTE (flagged, not hidden):
+    Clean Architecture says Domain depends on nothing. User/Role derive from
+    IdentityUser<Guid>/IdentityRole<Guid>, so this package is required.
+    Alternative: move Identity entities to Infrastructure and keep Domain pure.
+    This reference is the pragmatic industry-standard tradeoff; everything else
+    in Domain remains dependency-free.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.1" />
+  </ItemGroup>
+
 </Project>

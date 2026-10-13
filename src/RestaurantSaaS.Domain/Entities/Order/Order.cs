@@ -161,5 +161,5 @@ public class Order : AuditableEntity, ITenantOwned
     public bool IsTerminal => Status is OrderStatus.Completed or OrderStatus.Cancelled;
 
     private static string? Truncate(string? value, int max) =>
-        value is { Length: > max } ? value[..max] : value;
+        value is not null && value.Length > max ? value[..max] : value;
 }

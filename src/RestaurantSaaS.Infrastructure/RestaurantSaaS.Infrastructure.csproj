@@ -19,4 +19,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- Needed for IHttpContextAccessor (CurrentUserService). Standard pattern for Infrastructure layers hosting ASP.NET-facing implementations. -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
 </Project>

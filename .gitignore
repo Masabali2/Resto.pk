@@ -1,26 +1,5 @@
-# .NET / C# Build Artifacts
-[Bb]in/
-[Oo]bj/
+bin/
+obj/
 *.user
-*.suo
-*.cache
-*.dll
-*.exe
-*.pdb
-*.log
-project.lock.json
-
-# NuGet Packages
-packages/
-*.nupkg
-
-# IDE / Editor Files
 .vs/
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS Files
-.DS_Store
-Thumbs.db
+appsettings.Production.json
