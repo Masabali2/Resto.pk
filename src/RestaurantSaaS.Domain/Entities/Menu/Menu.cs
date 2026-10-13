@@ -4,15 +4,6 @@ using RestaurantSaaS.Domain.Exceptions;
 
 namespace RestaurantSaaS.Domain.Entities.Menus;
 
-/// <summary>
-/// A menu belonging to one restaurant of one tenant. A restaurant may have
-/// multiple menus (lunch/dinner/seasonal).
-///
-/// TENANT INTEGRITY: carries BOTH TenantId and RestaurantId. The EF layer maps
-/// a composite FK (TenantId, RestaurantId) -> Restaurants(TenantId, Id), so a
-/// "Menu of Tenant A pointing at Restaurant of Tenant B" is rejected by the
-/// database itself, not only by application code (requirement #11).
-/// </summary>
 public class Menu : AuditableEntity, ITenantOwned
 {
     public Guid TenantId { get; set; }
@@ -21,15 +12,23 @@ public class Menu : AuditableEntity, ITenantOwned
     public string Name { get; private set; } = null!;
     public string? Description { get; private set; }
 
-    /// <summary>Soft on/off switch used by tenants; independent from lifecycle Status.</summary>
     public bool IsActive { get; private set; } = true;
-
     public MenuStatus Status { get; private set; } = MenuStatus.Draft;
 
-    public Restaurant Restaurant { get; private set; } = null!;
-    public ICollection<MenuCategory> Categories { get; set; } = new List<MenuCategory>();
+    public Restaurants.Restaurant Restaurant { get; private set; } = null!;
 
-    public static Menu Create(Guid tenantId, Guid restaurantId, string name, string? description = null)
+    public ICollection<MenuCategory> Categories { get; private set; }
+        = new List<MenuCategory>();
+
+    private Menu()
+    {
+    }
+
+    public static Menu Create(
+        Guid tenantId,
+        Guid restaurantId,
+        string name,
+        string? description = null)
     {
         if (tenantId == Guid.Empty)
             throw new DomainException("MENU_TENANT_REQUIRED", "A menu must belong to a tenant.");
@@ -37,18 +36,15 @@ public class Menu : AuditableEntity, ITenantOwned
         if (restaurantId == Guid.Empty)
             throw new DomainException("MENU_RESTAURANT_REQUIRED", "A menu must belong to a restaurant.");
 
-        if (string.IsNullOrWhiteSpace(name))
-            throw new DomainException("MENU_NAME_REQUIRED", "Menu name is required.");
-
-        if (name.Length > 150)
-            throw new DomainException("MENU_NAME_TOO_LONG", "Menu name exceeds 150 characters.");
+        ValidateName(name);
+        var normalizedDescription = NormalizeDescription(description);
 
         return new Menu
         {
             TenantId = tenantId,
             RestaurantId = restaurantId,
             Name = name.Trim(),
-            Description = description?.Trim(),
+            Description = normalizedDescription,
             IsActive = true,
             Status = MenuStatus.Draft,
             CreatedAt = DateTime.UtcNow
@@ -57,33 +53,51 @@ public class Menu : AuditableEntity, ITenantOwned
 
     public void Update(string? name, string? description, bool? isActive)
     {
-        if (!string.IsNullOrWhiteSpace(name))
+        EnsureNotArchived();
+
+        if (name is not null)
         {
-            if (name.Length > 150)
-                throw new DomainException("MENU_NAME_TOO_LONG", "Menu name exceeds 150 characters.");
+            ValidateName(name);
             Name = name.Trim();
         }
 
         if (description is not null)
-            Description = description.Trim();
+            Description = NormalizeDescription(description);
 
         if (isActive.HasValue)
-            IsActive = isActive.Value;
+            SetActive(isActive.Value);
 
         UpdatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>Publish rule: only an active menu with at least one category can go live.</summary>
-    public void Publish()
+    public void SetActive(bool isActive)
     {
-        if (Status == MenuStatus.Archived)
-            throw new DomainException("MENU_ARCHIVED", "An archived menu cannot be published.");
+        EnsureNotArchived();
+
+        if (IsActive == isActive)
+            return;
+
+        IsActive = isActive;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void EnsureEditable()
+    {
+        EnsureNotArchived();
+    }
+
+    public void Publish(int categoryCount)
+    {
+        EnsureNotArchived();
 
         if (!IsActive)
             throw new DomainException("MENU_INACTIVE", "Only an active menu can be published.");
 
-        if (Categories.Count == 0)
+        if (categoryCount < 1)
             throw new DomainException("MENU_EMPTY", "A menu without categories cannot be published.");
+
+        if (Status == MenuStatus.Published)
+            return;
 
         Status = MenuStatus.Published;
         UpdatedAt = DateTime.UtcNow;
@@ -91,11 +105,44 @@ public class Menu : AuditableEntity, ITenantOwned
 
     public void Archive()
     {
+        if (Status == MenuStatus.Archived)
+            return;
+
         Status = MenuStatus.Archived;
         IsActive = false;
         UpdatedAt = DateTime.UtcNow;
     }
 
-    /// <summary>Public websites expose only published+active menus.</summary>
-    public bool IsPubliclyVisible => IsActive && Status == MenuStatus.Published;
+    public bool IsPubliclyVisible =>
+        IsActive && Status == MenuStatus.Published;
+
+    private void EnsureNotArchived()
+    {
+        if (Status == MenuStatus.Archived)
+            throw new DomainException("MENU_ARCHIVED", "An archived menu cannot be modified.");
+    }
+
+    private static void ValidateName(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            throw new DomainException("MENU_NAME_REQUIRED", "Menu name is required.");
+
+        if (name.Trim().Length > 150)
+            throw new DomainException("MENU_NAME_TOO_LONG", "Menu name cannot exceed 150 characters.");
+    }
+
+    private static string? NormalizeDescription(string? description)
+    {
+        if (string.IsNullOrWhiteSpace(description))
+            return null;
+
+        var normalized = description.Trim();
+
+        if (normalized.Length > 1000)
+            throw new DomainException(
+                "MENU_DESCRIPTION_TOO_LONG",
+                "Menu description cannot exceed 1000 characters.");
+
+        return normalized;
+    }
 }

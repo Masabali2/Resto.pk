@@ -10,12 +10,6 @@ using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
-/// <summary>
-/// Tenant onboarding & management use cases, implemented directly against EF
-/// Core (no repository wrapper — requirement #15). Authorization is enforced by
-/// policies at the API boundary; this service still performs its own tenant
-/// operational checks and ownership validation (defense in depth).
-/// </summary>
 public sealed class TenantService(
     ApplicationDbContext db,
     ICurrentUserService currentUser,
