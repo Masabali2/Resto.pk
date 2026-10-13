@@ -84,9 +84,7 @@ public sealed class PlatformAdminOnlyHandler(UserManager<User> userManager)
             context.Succeed(requirement);
         }
     }
-}
 
-public sealed class PlatformAdminOnlyRequirement : IAuthorizationRequirement;
 
 internal static class TenantAuthorization
 {
