@@ -44,6 +44,13 @@ public class WebsiteTemplate : AuditableEntity
         };
     }
 
+    /// <summary>Platform-admin assignment of the preview image (validated against Files by the caller).</summary>
+    public void AssignPreviewImage(Guid? fileId)
+    {
+        PreviewImageFileId = fileId;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
     public void Update(string? name, string? description, bool? isActive)
     {
         if (!string.IsNullOrWhiteSpace(name))
