@@ -44,3 +44,15 @@ public sealed class ConflictException : Exception
     {
     }
 }
+
+/// <summary>
+/// Mapped to 403. Raised when the user is authenticated and belongs to the
+/// tenant, but their tenant role does not grant the required permission.
+/// Distinct from CrossTenantAccessException (which hides resource existence).
+/// </summary>
+public sealed class ForbiddenException : Exception
+{
+    public ForbiddenException(string message) : base(message)
+    {
+    }
+}

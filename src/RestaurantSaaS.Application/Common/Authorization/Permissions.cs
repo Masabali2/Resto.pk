@@ -28,8 +28,15 @@ public static class Permissions
     public const string WebsiteUpdate = "Website.Update";
     public const string WebsitePublish = "Website.Publish";
 
+    public const string TenantView = "Tenant.View";
+    public const string TenantUpdate = "Tenant.Update";
+
     public const string RestaurantView = "Restaurant.View";
+    public const string RestaurantCreate = "Restaurant.Create";
     public const string RestaurantUpdate = "Restaurant.Update";
+    public const string RestaurantDeactivate = "Restaurant.Deactivate";
+
+    public const string StaffAssignRole = "Staff.AssignRole";
 
     /// <summary>Tenant-level role names stored via StaffMembership.RoleId → AspNetRoles.</summary>
     public static class TenantRoles
@@ -54,11 +61,12 @@ public static class Permissions
             [TenantRoles.Owner] = All(),
             [TenantRoles.Manager] = new HashSet<string>(StringComparer.Ordinal)
             {
+                TenantView,
                 MenuView, MenuCreate, MenuUpdate, MenuDelete,
                 OrderView, OrderCreate, OrderUpdate, OrderCancel,
                 StaffView, StaffInvite, StaffUpdate,
                 WebsiteView, WebsiteUpdate, WebsitePublish,
-                RestaurantView, RestaurantUpdate,
+                RestaurantView, RestaurantCreate, RestaurantUpdate, RestaurantDeactivate,
             },
             [TenantRoles.Kitchen] = new HashSet<string>(StringComparer.Ordinal)
             {
@@ -80,11 +88,12 @@ public static class Permissions
     private static HashSet<string> All() =>
         new(
             [
+                TenantView, TenantUpdate,
                 MenuView, MenuCreate, MenuUpdate, MenuDelete,
                 OrderView, OrderCreate, OrderUpdate, OrderCancel,
-                StaffView, StaffInvite, StaffUpdate, StaffRemove,
+                StaffView, StaffInvite, StaffUpdate, StaffRemove, StaffAssignRole,
                 WebsiteView, WebsiteUpdate, WebsitePublish,
-                RestaurantView, RestaurantUpdate,
+                RestaurantView, RestaurantCreate, RestaurantUpdate, RestaurantDeactivate,
             ],
             StringComparer.Ordinal);
 }
