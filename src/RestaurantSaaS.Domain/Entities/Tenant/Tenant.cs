@@ -70,6 +70,22 @@ public class Tenant : AuditableEntity, ISoftDeletable
         UpdatedAt = DateTime.UtcNow;
     }
 
+    /// <summary>Tenant operational gate used by tenant-scoped use cases.</summary>
+    public void EnsureOperational()
+    {
+        if (IsDeleted)
+            throw new DomainException("TENANT_DELETED", "This tenant has been deleted.");
+
+        if (Status != TenantStatus.Active)
+            throw new DomainException("TENANT_NOT_ACTIVE",
+                Status switch
+                {
+                    TenantStatus.Pending => "This tenant is still pending activation.",
+                    TenantStatus.Suspended => "This tenant is suspended. Contact support.",
+                    _ => "This tenant is no longer active."
+                });
+    }
+
     public static string NormalizeSlug(string slug)
     {
         if (string.IsNullOrWhiteSpace(slug))
