@@ -8,6 +8,7 @@ using RestaurantSaaS.Api.Services.Authentication;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Options;
 using RestaurantSaaS.Application.Features.Restaurants;
+using RestaurantSaaS.Application.Features.Websites;
 using RestaurantSaaS.Application.Features.Tenants;
 using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
@@ -81,6 +82,10 @@ public static class DependencyInjection
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();
         services.AddScoped<IRestaurantService, RestaurantService>();
+        services.AddScoped<IRestaurantAssetService, RestaurantAssetService>();
+        services.AddScoped<IWebsiteTemplateService, WebsiteTemplateService>();
+        services.AddScoped<IWebsiteService, WebsiteService>();
+        services.AddScoped<IPublicSiteService, PublicSiteService>();
 
         RegisterValidators(services);
 
