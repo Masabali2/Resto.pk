@@ -84,6 +84,7 @@ public class ApplicationDbContext
     public DbSet<FileMetadata> Files => Set<FileMetadata>();
     public DbSet<QRCode> QRCodes => Set<QRCode>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
+    public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
 
     /// <summary>
     /// Enables tenant-filter bypass for explicitly authorized system operations.
@@ -100,6 +101,33 @@ public class ApplicationDbContext
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+        builder.Entity<RefreshToken>(entity =>
+        {
+            entity.ToTable("RefreshTokens");
+
+            entity.HasKey(x => x.Id);
+
+            entity.Property(x => x.TokenHash)
+                .IsRequired()
+                .HasMaxLength(64);
+
+            entity.HasIndex(x => x.TokenHash)
+                .IsUnique();
+
+            entity.Property(x => x.ReplacedByTokenHash)
+                .HasMaxLength(64);
+
+            entity.Property(x => x.CreatedByIp)
+                .HasMaxLength(45);
+
+            entity.Property(x => x.RevokedByIp)
+                .HasMaxLength(45);
+
+            entity.HasOne(x => x.User)
+                .WithMany()
+                .HasForeignKey(x => x.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
 
         // Apply all IEntityTypeConfiguration<TEntity> classes.
         builder.ApplyConfigurationsFromAssembly(

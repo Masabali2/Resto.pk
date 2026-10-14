@@ -1,14 +1,20 @@
+
 namespace RestaurantSaaS.Application.Common.Authorization;
 
 /// <summary>
-/// Stable permission constants (requirement #19). Referenced by authorization
-/// policies and StaffMembership role definitions — no magic strings scattered
-/// through controllers. In V1 permissions are derived from tenant roles in
-/// code; the shape allows moving to a DB-backed permission store later without
-/// touching call sites.
+/// Central catalog of stable permission constants.
+///
+/// Tenant permissions are derived from tenant roles in V1.
+/// Platform permissions are reserved for global platform administration.
+/// This structure can later support a database-backed permission store
+/// without changing authorization policy names throughout the application.
 /// </summary>
 public static class Permissions
 {
+    // =========================================================
+    // Tenant-level permissions
+    // =========================================================
+
     public const string MenuView = "Menu.View";
     public const string MenuCreate = "Menu.Create";
     public const string MenuUpdate = "Menu.Update";
@@ -33,6 +39,7 @@ public static class Permissions
     public const string StaffInvite = "Staff.Invite";
     public const string StaffUpdate = "Staff.Update";
     public const string StaffRemove = "Staff.Remove";
+    public const string StaffAssignRole = "Staff.AssignRole";
 
     public const string WebsiteView = "Website.View";
     public const string WebsiteUpdate = "Website.Update";
@@ -46,9 +53,73 @@ public static class Permissions
     public const string RestaurantUpdate = "Restaurant.Update";
     public const string RestaurantDeactivate = "Restaurant.Deactivate";
 
-    public const string StaffAssignRole = "Staff.AssignRole";
 
-    /// <summary>Tenant-level role names stored via StaffMembership.RoleId → AspNetRoles.</summary>
+    // =========================================================
+    // Platform-level permissions
+    // =========================================================
+
+    /// <summary>
+    /// Permissions for managing the SaaS platform itself.
+    /// These are not tenant permissions.
+    /// </summary>
+    public static class Platform
+    {
+        public const string TenantsView = "Platform.Tenants.View";
+        public const string TenantsManage = "Platform.Tenants.Manage";
+
+        public const string UsersView = "Platform.Users.View";
+        public const string UsersManage = "Platform.Users.Manage";
+
+        public const string PlansView = "Platform.Plans.View";
+        public const string PlansManage = "Platform.Plans.Manage";
+
+        public const string SubscriptionsView = "Platform.Subscriptions.View";
+        public const string SubscriptionsManage = "Platform.Subscriptions.Manage";
+
+        public const string TemplatesView = "Platform.Templates.View";
+        public const string TemplatesManage = "Platform.Templates.Manage";
+
+        public const string SettingsManage = "Platform.Settings.Manage";
+        public const string ReportsView = "Platform.Reports.View";
+    }
+
+    /// <summary>
+    /// All valid platform-level permission names.
+    /// Used by the authorization handler to distinguish platform
+    /// permissions from tenant permissions.
+    /// </summary>
+    public static IReadOnlySet<string> AllPlatformPermissions { get; } =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            Platform.TenantsView,
+            Platform.TenantsManage,
+
+            Platform.UsersView,
+            Platform.UsersManage,
+
+            Platform.PlansView,
+            Platform.PlansManage,
+
+            Platform.SubscriptionsView,
+            Platform.SubscriptionsManage,
+
+            Platform.TemplatesView,
+            Platform.TemplatesManage,
+
+            Platform.SettingsManage,
+            Platform.ReportsView
+        };
+
+
+    // =========================================================
+    // Role definitions
+    // =========================================================
+
+    /// <summary>
+    /// Tenant-level roles.
+    /// These roles are assigned through StaffMemberships.RoleId,
+    /// not through AspNetUserRoles.
+    /// </summary>
     public static class TenantRoles
     {
         public const string Owner = "Owner";
@@ -58,56 +129,156 @@ public static class Permissions
         public const string Waiter = "Waiter";
     }
 
-    /// <summary>Global platform role (AspNetUserRoles), NOT tenant-scoped.</summary>
+    /// <summary>
+    /// Global platform roles.
+    /// Platform roles are assigned through AspNetUserRoles.
+    /// </summary>
     public static class PlatformRoles
     {
         public const string PlatformAdmin = "PlatformAdmin";
     }
 
-    /// <summary>V1 role → permission map. Single source of truth for tenant authorization.</summary>
-    public static IReadOnlyDictionary<string, HashSet<string>> RolePermissions { get; } =
+
+    // =========================================================
+    // Tenant role → permission mapping
+    // =========================================================
+
+    /// <summary>
+    /// V1 tenant authorization map.
+    /// Each tenant role receives only the permissions defined here.
+    /// </summary>
+    public static IReadOnlyDictionary<string, HashSet<string>> RolePermissions
+    { get; } =
         new Dictionary<string, HashSet<string>>(StringComparer.Ordinal)
         {
             [TenantRoles.Owner] = All(),
-            [TenantRoles.Manager] = new HashSet<string>(StringComparer.Ordinal)
+
+            [TenantRoles.Manager] = new HashSet<string>(
+                StringComparer.Ordinal)
             {
                 TenantView,
-                MenuView, MenuCreate, MenuUpdate, MenuDelete,
-                MenuCategoryView, MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryDelete,
-                MenuItemView, MenuItemCreate, MenuItemUpdate, MenuItemDelete,
-                OrderView, OrderCreate, OrderUpdate, OrderCancel,
-                StaffView, StaffInvite, StaffUpdate,
-                WebsiteView, WebsiteUpdate, WebsitePublish,
-                RestaurantView, RestaurantCreate, RestaurantUpdate, RestaurantDeactivate,
+
+                MenuView,
+                MenuCreate,
+                MenuUpdate,
+                MenuDelete,
+
+                MenuCategoryView,
+                MenuCategoryCreate,
+                MenuCategoryUpdate,
+                MenuCategoryDelete,
+
+                MenuItemView,
+                MenuItemCreate,
+                MenuItemUpdate,
+                MenuItemDelete,
+
+                OrderView,
+                OrderCreate,
+                OrderUpdate,
+                OrderCancel,
+
+                StaffView,
+                StaffInvite,
+                StaffUpdate,
+
+                WebsiteView,
+                WebsiteUpdate,
+                WebsitePublish,
+
+                RestaurantView,
+                RestaurantCreate,
+                RestaurantUpdate,
+                RestaurantDeactivate
             },
-            [TenantRoles.Kitchen] = new HashSet<string>(StringComparer.Ordinal)
+
+            [TenantRoles.Kitchen] = new HashSet<string>(
+                StringComparer.Ordinal)
             {
-                OrderView, OrderUpdate, // preparation transitions only (validated by domain rules)
-                MenuView, MenuCategoryView, MenuItemView, MenuItemUpdate,
+                // Domain rules must still validate allowed status transitions.
+                OrderView,
+                OrderUpdate,
+
+                MenuView,
+                MenuCategoryView,
+                MenuItemView,
+                MenuItemUpdate
             },
-            [TenantRoles.Cashier] = new HashSet<string>(StringComparer.Ordinal)
+
+            [TenantRoles.Cashier] = new HashSet<string>(
+                StringComparer.Ordinal)
             {
-                OrderView, OrderCreate, OrderUpdate, OrderCancel,
-                MenuView, MenuCategoryView, MenuItemView,
+                OrderView,
+                OrderCreate,
+                OrderUpdate,
+                OrderCancel,
+
+                MenuView,
+                MenuCategoryView,
+                MenuItemView
             },
-            [TenantRoles.Waiter] = new HashSet<string>(StringComparer.Ordinal)
+
+            [TenantRoles.Waiter] = new HashSet<string>(
+                StringComparer.Ordinal)
             {
-                OrderView, OrderCreate,
-                MenuView, MenuCategoryView, MenuItemView,
-            },
+                OrderView,
+                OrderCreate,
+
+                MenuView,
+                MenuCategoryView,
+                MenuItemView
+            }
         };
 
+
+    // =========================================================
+    // Internal helpers
+    // =========================================================
+
+    /// <summary>
+    /// Returns the complete set of tenant permissions.
+    /// The Owner role receives all tenant permissions in V1.
+    /// </summary>
     private static HashSet<string> All() =>
         new(
             [
-                TenantView, TenantUpdate,
-                MenuView, MenuCreate, MenuUpdate, MenuDelete,
-                MenuCategoryView, MenuCategoryCreate, MenuCategoryUpdate, MenuCategoryDelete,
-                MenuItemView, MenuItemCreate, MenuItemUpdate, MenuItemDelete,
-                OrderView, OrderCreate, OrderUpdate, OrderCancel,
-                StaffView, StaffInvite, StaffUpdate, StaffRemove, StaffAssignRole,
-                WebsiteView, WebsiteUpdate, WebsitePublish,
-                RestaurantView, RestaurantCreate, RestaurantUpdate, RestaurantDeactivate,
+                TenantView,
+                TenantUpdate,
+
+                MenuView,
+                MenuCreate,
+                MenuUpdate,
+                MenuDelete,
+
+                MenuCategoryView,
+                MenuCategoryCreate,
+                MenuCategoryUpdate,
+                MenuCategoryDelete,
+
+                MenuItemView,
+                MenuItemCreate,
+                MenuItemUpdate,
+                MenuItemDelete,
+
+                OrderView,
+                OrderCreate,
+                OrderUpdate,
+                OrderCancel,
+
+                StaffView,
+                StaffInvite,
+                StaffUpdate,
+                StaffRemove,
+                StaffAssignRole,
+
+                WebsiteView,
+                WebsiteUpdate,
+                WebsitePublish,
+
+                RestaurantView,
+                RestaurantCreate,
+                RestaurantUpdate,
+                RestaurantDeactivate
             ],
             StringComparer.Ordinal);
 }

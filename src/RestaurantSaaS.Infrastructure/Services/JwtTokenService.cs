@@ -1,3 +1,4 @@
+
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
@@ -10,27 +11,39 @@ using RestaurantSaaS.Application.Common.Options;
 namespace RestaurantSaaS.Infrastructure.Services;
 
 /// <summary>
-/// HS256 access-token issuance + validation. Tokens carry identity claims and
-/// GLOBAL platform roles only. Tenant id / tenant roles are deliberately NOT
-/// embedded: they are re-resolved per request from StaffMemberships, which makes
-/// stale-token privilege escalation impossible.
+/// Issues and validates JWT access tokens and generates opaque refresh tokens.
+/// Access tokens contain identity claims and global platform roles only.
+/// Tenant memberships and tenant permissions are resolved separately.
 /// </summary>
-public sealed class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenService
+public sealed class JwtTokenService(
+    IOptions<JwtOptions> options,
+    IDateTimeProvider dateTimeProvider) : IJwtTokenService
 {
     private readonly JwtOptions _options = options.Value;
 
-    public string CreateAccessToken(IEnumerable<Claim> claims, out DateTime expiresAtUtc)
+    public string CreateAccessToken(
+        IEnumerable<Claim> claims,
+        out DateTime expiresAtUtc)
     {
-        expiresAtUtc = DateTime.UtcNow.AddMinutes(_options.AccessTokenExpirationMinutes);
+        ArgumentNullException.ThrowIfNull(claims);
 
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Secret));
-        var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
+        var now = dateTimeProvider.UtcNow;
+
+        expiresAtUtc = now.AddMinutes(
+            _options.AccessTokenExpirationMinutes);
+
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_options.Secret));
+
+        var credentials = new SigningCredentials(
+            key,
+            SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
             issuer: _options.Issuer,
             audience: _options.Audience,
             claims: claims,
-            notBefore: DateTime.UtcNow,
+            notBefore: now,
             expires: expiresAtUtc,
             signingCredentials: credentials);
 
@@ -39,36 +52,66 @@ public sealed class JwtTokenService(IOptions<JwtOptions> options) : IJwtTokenSer
 
     public RefreshTokenPair CreateRefreshToken()
     {
-        // 64 random bytes => opaque single-use token; only its SHA-256 hash is persisted.
-        var raw = Convert.ToBase64String(RandomNumberGenerator.GetBytes(64));
-        var hashed = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
-        var expires = DateTime.UtcNow.AddDays(_options.RefreshTokenExpirationDays);
-        return new RefreshTokenPair(raw, hashed, expires);
+        // Generate an opaque, cryptographically random token.
+        var randomBytes = RandomNumberGenerator.GetBytes(64);
+        var rawToken = Base64UrlEncoder.Encode(randomBytes);
+
+        // Persist only this hash, never the raw token.
+        var tokenHash = Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(rawToken)));
+
+        var expiresAtUtc = dateTimeProvider.UtcNow.AddDays(
+            _options.RefreshTokenExpirationDays);
+
+        return new RefreshTokenPair(
+            rawToken,
+            tokenHash,
+            expiresAtUtc);
     }
 
     public ClaimsPrincipal? ValidateAccessToken(string token)
     {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return null;
+        }
+
+        var key = new SymmetricSecurityKey(
+            Encoding.UTF8.GetBytes(_options.Secret));
+
         var handler = new JwtSecurityTokenHandler();
-        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Secret));
 
         try
         {
-            return handler.ValidateToken(token, new TokenValidationParameters
-            {
-                ValidateIssuer = true,
-                ValidIssuer = _options.Issuer,
-                ValidateAudience = true,
-                ValidAudience = _options.Audience,
-                ValidateIssuerSigningKey = true,
-                IssuerSigningKey = key,
-                ValidateLifetime = true,
-                ClockSkew = TimeSpan.FromSeconds(30),
-                RequireExpirationTime = true
-            }, out _);
+            return handler.ValidateToken(
+                token,
+                new TokenValidationParameters
+                {
+                    ValidateIssuer = true,
+                    ValidIssuer = _options.Issuer,
+
+                    ValidateAudience = true,
+                    ValidAudience = _options.Audience,
+
+                    ValidateIssuerSigningKey = true,
+                    IssuerSigningKey = key,
+
+                    RequireSignedTokens = true,
+                    RequireExpirationTime = true,
+                    ValidateLifetime = true,
+
+                    ClockSkew = TimeSpan.FromSeconds(30)
+                },
+                out _);
         }
         catch (SecurityTokenException)
         {
-            return null; // expired / tampered / wrong issuer — caller returns 401
+            return null;
+        }
+        catch (ArgumentException)
+        {
+            // Malformed token input.
+            return null;
         }
     }
 }

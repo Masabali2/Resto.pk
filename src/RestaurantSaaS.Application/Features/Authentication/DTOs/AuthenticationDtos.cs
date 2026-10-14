@@ -1,42 +1,64 @@
+
 using RestaurantSaaS.Application.Common.Interfaces;
 
 namespace RestaurantSaaS.Application.Features.Authentication.DTOs;
 
-// SECURITY (requirement #19): registration input carries NO RoleId, TenantId,
-// IsPlatformAdmin or Permissions fields — those can never be client-supplied.
+// Public registration input.
+// Clients cannot assign roles, permissions, or tenant membership.
 public sealed record RegisterRequest(
     string Email,
+    string UserName,
     string Password,
-    string FullName);
+    string ConfirmPassword);
 
-public sealed record LoginRequest(string Email, string Password);
+public sealed record LoginRequest(
+    string EmailOrUserName,
+    string Password);
 
-public sealed record SelectTenantRequest(Guid TenantId);
+public sealed record SelectTenantRequest(
+    Guid TenantId);
 
-public sealed record RefreshTokenRequest(string AccessToken, string RefreshToken);
-
+// Safe user information returned by the API.
 public sealed record AuthenticatedUserDto(
     Guid Id,
     string Email,
-    string FullName,
+    string UserName,
     IReadOnlyList<string> PlatformRoles);
+
+// A tenant membership and the user's role within that tenant.
 
 public sealed record TenantSummaryDto(
     Guid TenantId,
     string Name,
     string Slug,
-    string RoleName);   // the user's tenant-level role in THAT tenant
+    string RoleName);
 
 public sealed record AuthResultDto(
+    AuthenticatedUserDto User,
+    IReadOnlyList<TenantSummaryDto> Memberships,
+    TenantSummaryDto? ActiveTenant,
+    IReadOnlyList<string> Permissions);
+
+// Internal service result passed to the API layer.
+// Never return this object directly as an HTTP JSON response.
+public sealed record LoginResult(
     string AccessToken,
     DateTime AccessTokenExpiresAtUtc,
     string RefreshToken,
-    AuthenticatedUserDto User,
-    IReadOnlyList<TenantSummaryDto> Memberships,
-    TenantSummaryDto? ActiveTenant);
+    DateTime RefreshTokenExpiresAtUtc,
+    AuthResultDto Response);
 
 public static class AuthMapper
 {
-    public static TenantSummaryDto ToDto(this TenantMembershipInfo m) =>
-        new(m.TenantId, m.TenantName, m.TenantSlug, m.RoleName);
+    public static TenantSummaryDto ToDto(
+        this TenantMembershipInfo membership)
+    {
+        ArgumentNullException.ThrowIfNull(membership);
+
+        return new TenantSummaryDto(
+            membership.TenantId,
+            membership.TenantName,
+            membership.TenantSlug,
+            membership.RoleName);
+    }
 }

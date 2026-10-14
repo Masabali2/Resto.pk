@@ -1,108 +1,39 @@
-//using System.Text.Json;
-//using Microsoft.AspNetCore.Http;
-//using RestaurantSaaS.Application.Common.Interfaces;
-//using RestaurantSaaS.Application.Common.Models;
 
-//namespace RestaurantSaaS.Api.Middleware;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using RestaurantSaaS.Application.Common.Interfaces;
 
-///// <summary>
-///// Resolves the request's tenant BEFORE authorization runs. Order matters:
-/////   1. Authenticated resolvers first (membership-verified).
-/////   2. Public resolvers next (slug/subdomain for anonymous customer traffic).
-///// A client-supplied TenantId NEVER enters ITenantContext without passing
-///// through a resolver that validates membership server-side (fail closed).
-///// </summary>
-//public sealed class TenantResolutionMiddleware(RequestDelegate next)
-//{
-//    public async Task InvokeAsync(HttpContext context)
-//    {
-//        var setter = context.RequestServices.GetRequiredService<ITenantContextSetter>();
-//        var resolvers = context.RequestServices.GetServices<ITenantResolver>();
+namespace RestaurantSaaS.Api.Middleware;
 
-//        foreach (var resolver in resolvers)
-//        {
-//            var tenantId = await resolver.ResolveAsync(context.RequestAborted);
-//            if (tenantId is not null)
-//            {
-//                setter.SetTenant(tenantId.Value);
-//                break; // first resolution wins; ambiguity impossible by construction
-//            }
-//        }
+/// <summary>
+/// Resolves the tenant context before tenant-scoped authorization.
+/// Each resolver must enforce the validation rules for its access model.
+/// </summary>
+public sealed class TenantResolutionMiddleware(RequestDelegate next)
+{
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var setter = context.RequestServices
+            .GetRequiredService<ITenantContextSetter>();
 
-//        await next(context);
-//    }
-//}
+        var resolvers = context.RequestServices
+            .GetServices<ITenantResolver>();
 
-///// <summary>
-///// Central exception → HTTP mapping so controllers stay thin and error payloads
-///// are uniform (ApiResponse envelope). Never leaks stack traces or other
-///// tenants' data.
-///// </summary>
-//public sealed class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
-//{
-//    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+        foreach (var resolver in resolvers)
+        {
+            var tenantId = await resolver.ResolveAsync(
+                context.RequestAborted);
 
-//    public async Task InvokeAsync(HttpContext context)
-//    {
-//        try
-//        {
-//            await next(context);
-//        }
-//        catch (RestaurantSaaS.Domain.Exceptions.DomainException ex)
-//        {
-//            Write(context, StatusCodes.Status400BadRequest, ex.Code, ex.Message);
-//        }
-//        catch (Application.Common.Exceptions.NotAuthenticatedException ex)
-//        {
-//            Write(context, StatusCodes.Status401Unauthorized, ex.Code, ex.Message);
-//        }
-//        catch (Application.Common.Exceptions.CrossTenantAccessException ex)
-//        {
-//            // Generic message — never reveal whether the resource exists elsewhere.
-//            Write(context, StatusCodes.Status403Forbidden, "ACCESS_DENIED", ex.Message);
-//        }
-//        catch (Application.Common.Exceptions.ForbiddenException ex)
-//        {
-//            Write(context, StatusCodes.Status403Forbidden, "FORBIDDEN", ex.Message);
-//        }
-//        catch (Application.Common.Exceptions.NotFoundException ex)
-//        {
-//            Write(context, StatusCodes.Status404NotFound, "NOT_FOUND", ex.Message);
-//        }
-//        catch (Application.Common.Exceptions.ConflictException ex)
-//        {
-//            Write(context, StatusCodes.Status409Conflict, "CONFLICT", ex.Message);
-//        }
-//        catch (Microsoft.EntityFrameworkCore.DbUpdateConcurrencyException)
-//        {
-//            Write(context, StatusCodes.Status409Conflict, "CONCURRENCY_CONFLICT",
-//                "The resource was modified concurrently. Reload and retry.");
-//        }
-//        catch (Exception ex)
-//        {
-//            logger.LogError(ex, "Unhandled exception for {Method} {Path}", context.Request.Method, context.Request.Path);
-//            Write(context, StatusCodes.Status500InternalServerError, "INTERNAL_ERROR",
-//                "An unexpected error occurred.");
-//        }
-//    }
+            if (tenantId is null)
+            {
+                continue;
+            }
 
-//    private static void Write(HttpContext context, int status, string errorCode, string message)
-//    {
-//        if (context.Response.HasStarted) return;
+            setter.SetTenant(tenantId.Value);
+            break;
+        }
 
-//        context.Response.Clear();
-//        context.Response.StatusCode = status;
-//        context.Response.ContentType = "application/json";
+        await next(context);
+    }
+}
 
-//        // ApiResponse<T> is a class with init-only props; construct directly.
-//        var payload = new ApiResponse<object>
-//        {
-//            Success = false,
-//            ErrorCode = errorCode,
-//            Message = message,
-//            TraceId = context.TraceIdentifier
-//        };
-
-//        context.Response.WriteAsync(JsonSerializer.Serialize(payload, JsonOptions)).GetAwaiter().GetResult();
-//    }
-//}
