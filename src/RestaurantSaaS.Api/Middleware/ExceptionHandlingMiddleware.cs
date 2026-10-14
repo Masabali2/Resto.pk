@@ -42,8 +42,14 @@ public sealed class HandleExceptionMiddleware(
                 throw;
             }
 
-            var (statusCode, errorCode, message) =
+            var (statusCode, errorCode, message, retryAfter) =
                 MapException(exception);
+
+            if (retryAfter is not null)
+            {
+                context.Response.Headers.RetryAfter =
+                    retryAfter.Value.ToString();
+            }
 
             context.Response.Clear();
             context.Response.StatusCode = statusCode;
@@ -65,44 +71,58 @@ public sealed class HandleExceptionMiddleware(
     private static (
      int StatusCode,
      string ErrorCode,
-     string Message) MapException(Exception exception)
+     string Message,
+     int? RetryAfterSeconds) MapException(Exception exception)
     {
         return exception switch
         {
+            OtpRateLimitException ex => (
+                StatusCodes.Status429TooManyRequests,
+                "OTP_RATE_LIMITED",
+                ex.Message,
+                ex.RetryAfterSeconds),
+
             NotAuthenticatedException ex => (
                 StatusCodes.Status401Unauthorized,
                 "AUTH_UNAUTHORIZED",
-                ex.Message),
+                ex.Message,
+                null),
 
             CrossTenantAccessException => (
                 StatusCodes.Status403Forbidden,
                 "CROSS_TENANT_ACCESS_DENIED",
-                "The requested resource is not accessible."),
+                "The requested resource is not accessible.",
+                null),
 
             ForbiddenException ex => (
                 StatusCodes.Status403Forbidden,
                 "FORBIDDEN",
-                ex.Message),
+                ex.Message,
+                null),
 
             NotFoundException ex => (
                 StatusCodes.Status404NotFound,
                 "NOT_FOUND",
-                ex.Message),
+                ex.Message,
+                null),
 
             ConflictException ex => (
                 StatusCodes.Status409Conflict,
                 "CONFLICT",
-                ex.Message),
+                ex.Message,
+                null),
 
             DbUpdateConcurrencyException => (
                 StatusCodes.Status409Conflict,
                 "CONCURRENCY_CONFLICT",
-                "The resource was modified by another operation. Please reload and try again."),
+                "The resource was modified by another operation. Please reload and try again.",
+                null),
 
             _ => (
                 StatusCodes.Status500InternalServerError,
                 "INTERNAL_SERVER_ERROR",
-                "An unexpected error occurred. Please try again later.")
+                "An unexpected error occurred. Please try again later.",
+                null)
         };
     }
 }

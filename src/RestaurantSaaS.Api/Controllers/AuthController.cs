@@ -98,10 +98,71 @@ public class AuthController : ControllerBase
     }
 
 
+    [HttpGet("me")]
+    [Authorize]
+    public async Task<IActionResult> Me(
+        CancellationToken cancellationToken)
+    {
+        var result = await _authService.GetCurrentUserAsync(
+            cancellationToken);
+
+        return this.ToActionResult(
+            result,
+            StatusCodes.Status200OK);
+    }
+
+    [HttpPost("refresh")]
+    [AllowAnonymous]
+    public async Task<IActionResult> Refresh(
+        CancellationToken cancellationToken)
+    {
+        if (!_authCookieService.TryReadRefreshToken(out var refreshToken))
+        {
+            return Unauthorized(ApiResponse<object>.Fail(
+                "AUTH_INVALID_REFRESH_TOKEN",
+                "The refresh token is invalid, expired, or missing."));
+        }
+
+        var result = await _authService.RefreshAsync(
+            refreshToken,
+            cancellationToken);
+
+        if (!result.Success || result.Data is null)
+        {
+            _authCookieService.ClearAuthenticationCookies();
+
+            var failure = ApiResponse<AuthResultDto>.Fail(
+                result.ErrorCode ?? "AUTH_REFRESH_FAILED",
+                result.Message ?? "The session could not be refreshed.",
+                result.Errors);
+
+            return this.ToActionResult(
+                failure,
+                StatusCodes.Status401Unauthorized);
+        }
+
+        var login = result.Data;
+
+        _authCookieService.SetAuthenticationCookies(
+            login.AccessToken,
+            login.AccessTokenExpiresAtUtc,
+            login.RefreshToken,
+            login.RefreshTokenExpiresAtUtc);
+
+        return Ok(ApiResponse<AuthResultDto>.Ok(login.Response));
+    }
+
     [HttpPost("logout")]
     [Authorize]
-    public IActionResult Logout()
+    public async Task<IActionResult> Logout(
+        CancellationToken cancellationToken)
     {
+        _authCookieService.TryReadRefreshToken(out var refreshToken);
+
+        await _authService.LogoutAsync(
+            refreshToken,
+            cancellationToken);
+
         _authCookieService.ClearAuthenticationCookies();
 
         return NoContent();
