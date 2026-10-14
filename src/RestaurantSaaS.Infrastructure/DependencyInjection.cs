@@ -1,4 +1,5 @@
 
+using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -7,6 +8,8 @@ using RestaurantSaaS.Api.Services.Authentication;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Options;
 using RestaurantSaaS.Application.Features.Restaurants;
+using RestaurantSaaS.Application.Features.Tenants;
+using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
@@ -75,9 +78,50 @@ public static class DependencyInjection
         services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<ITenantResolver, PublicTenantResolver>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();
         services.AddScoped<IRestaurantService, RestaurantService>();
 
+        RegisterValidators(services);
+
         return services;
+    }
+
+    private static void RegisterValidators(IServiceCollection services)
+    {
+        var validatorOpenType = typeof(IValidator<>);
+        var seen = new HashSet<Type>();
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            Type[] types;
+            try
+            {
+                types = assembly.GetTypes();
+            }
+            catch (ReflectionTypeLoadException ex)
+            {
+                types = ex.Types.Where(t => t is not null).ToArray()!;
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+
+            foreach (var type in types)
+            {
+                if (!type.IsClass || type.IsAbstract)
+                    continue;
+
+                foreach (var serviceType in type.GetInterfaces()
+                             .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == validatorOpenType))
+                {
+                    if (seen.Add(serviceType))
+                    {
+                        services.AddScoped(serviceType, type);
+                    }
+                }
+            }
+        }
     }
 }

@@ -21,4 +21,15 @@ public interface IAuthService
         string email,
         CancellationToken cancellationToken = default);
 
+    Task<ApiResponse<LoginResult>> RefreshAsync(
+        string refreshToken,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<AuthResultDto>> GetCurrentUserAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<string>> LogoutAsync(
+        string refreshToken,
+        CancellationToken cancellationToken = default);
+
 }

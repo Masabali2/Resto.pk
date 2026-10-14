@@ -633,6 +633,28 @@
           "build/net8.0/Microsoft.TestPlatform.TestHost.targets": {}
         }
       },
+      "System.Security.Cryptography.Pkcs/10.0.13": {
+        "type": "package",
+        "compile": {
+          "lib/net10.0/System.Security.Cryptography.Pkcs.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/System.Security.Cryptography.Pkcs.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net8.0/_._": {}
+        },
+        "runtimeTargets": {
+          "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.dll": {
+            "assetType": "runtime",
+            "rid": "win"
+          }
+        }
+      },
       "xunit/2.9.3": {
         "type": "package",
         "dependencies": {
@@ -734,14 +756,18 @@
         "framework": ".NETCoreApp,Version=v10.0",
         "dependencies": {
           "FluentValidation": "12.2.0",
-          "RestaurantSaaS.Domain": "1.0.0"
+          "RestaurantSaaS.Domain": "1.0.0",
+          "System.Security.Cryptography.Pkcs": "10.0.13"
         },
         "compile": {
           "bin/placeholder/RestaurantSaaS.Application.dll": {}
         },
         "runtime": {
           "bin/placeholder/RestaurantSaaS.Application.dll": {}
-        }
+        },
+        "frameworkReferences": [
+          "Microsoft.AspNetCore.App"
+        ]
       },
       "RestaurantSaaS.Domain/1.0.0": {
         "type": "project",
@@ -1849,6 +1875,42 @@
         "microsoft.testplatform.testhost.nuspec"
       ]
     },
+    "System.Security.Cryptography.Pkcs/10.0.13": {
+      "sha512": "a+EovgC1fBnwdlQ6cn3j4JFBfKqiFaFvoAhjisOoSvazLAcIznaBzPQP0oYnvccmeXfqUH1KebVZOxSeH6rMaw==",
+      "type": "package",
+      "path": "system.security.cryptography.pkcs/10.0.13",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.Security.Cryptography.Pkcs.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net8.0/_._",
+        "buildTransitive/netcoreapp2.0/System.Security.Cryptography.Pkcs.targets",
+        "lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+        "lib/net10.0/System.Security.Cryptography.Pkcs.xml",
+        "lib/net462/System.Security.Cryptography.Pkcs.dll",
+        "lib/net462/System.Security.Cryptography.Pkcs.xml",
+        "lib/net8.0/System.Security.Cryptography.Pkcs.dll",
+        "lib/net8.0/System.Security.Cryptography.Pkcs.xml",
+        "lib/net9.0/System.Security.Cryptography.Pkcs.dll",
+        "lib/net9.0/System.Security.Cryptography.Pkcs.xml",
+        "lib/netstandard2.0/System.Security.Cryptography.Pkcs.dll",
+        "lib/netstandard2.0/System.Security.Cryptography.Pkcs.xml",
+        "lib/netstandard2.1/System.Security.Cryptography.Pkcs.dll",
+        "lib/netstandard2.1/System.Security.Cryptography.Pkcs.xml",
+        "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.dll",
+        "runtimes/win/lib/net10.0/System.Security.Cryptography.Pkcs.xml",
+        "runtimes/win/lib/net8.0/System.Security.Cryptography.Pkcs.dll",
+        "runtimes/win/lib/net8.0/System.Security.Cryptography.Pkcs.xml",
+        "runtimes/win/lib/net9.0/System.Security.Cryptography.Pkcs.dll",
+        "runtimes/win/lib/net9.0/System.Security.Cryptography.Pkcs.xml",
+        "system.security.cryptography.pkcs.10.0.13.nupkg.sha512",
+        "system.security.cryptography.pkcs.nuspec",
+        "useSharedDesignerContext.txt"
+      ]
+    },
     "xunit/2.9.3": {
       "sha512": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
       "type": "package",
@@ -2011,31 +2073,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\DELL\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "/root/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\DELL\\Music\\Resto.pk\\tests\\RestaurantSaaS.Application.Tests\\RestaurantSaaS.Application.Tests.csproj",
+      "projectUniqueName": "/workspace/tests/RestaurantSaaS.Application.Tests/RestaurantSaaS.Application.Tests.csproj",
       "projectName": "RestaurantSaaS.Application.Tests",
-      "projectPath": "C:\\Users\\DELL\\Music\\Resto.pk\\tests\\RestaurantSaaS.Application.Tests\\RestaurantSaaS.Application.Tests.csproj",
-      "packagesPath": "C:\\Users\\DELL\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\DELL\\Music\\Resto.pk\\tests\\RestaurantSaaS.Application.Tests\\obj\\",
+      "projectPath": "/workspace/tests/RestaurantSaaS.Application.Tests/RestaurantSaaS.Application.Tests.csproj",
+      "packagesPath": "/root/.nuget/packages/",
+      "outputPath": "/workspace/tests/RestaurantSaaS.Application.Tests/obj/",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\DELL\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "/root/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net10.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -2043,8 +2098,8 @@
           "framework": "net10.0",
           "targetAlias": "net10.0",
           "projectReferences": {
-            "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Application\\RestaurantSaaS.Application.csproj": {
-              "projectPath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Application\\RestaurantSaaS.Application.csproj"
+            "/workspace/src/RestaurantSaaS.Application/RestaurantSaaS.Application.csproj": {
+              "projectPath": "/workspace/src/RestaurantSaaS.Application/RestaurantSaaS.Application.csproj"
             }
           }
         }
@@ -2107,7 +2162,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.401/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "/usr/local/dotnet/sdk/10.0.402/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.CSharp": "(,4.7.32767]",
           "Microsoft.VisualBasic": "(,10.4.32767]",

@@ -129,7 +129,9 @@ public sealed class TenantService(
     private async Task<Tenant> GetCurrentUserTenantAsync(bool requireOperational, CancellationToken ct)
     {
         var userId = currentUser.UserId ?? throw new NotAuthenticatedException();
-        var tenantId = tenantContext.GetRequiredTenantId();
+        var tenantId = tenantContext.HasTenant
+            ? tenantContext.GetRequiredTenantId()
+            : throw new CrossTenantAccessException();
 
         var membership = await membershipService.GetMembershipAsync(userId, tenantId, ct)
             ?? throw new CrossTenantAccessException();

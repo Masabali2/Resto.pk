@@ -93,16 +93,17 @@ public sealed class EmailVerificationService(
                 retryAfterSeconds);
         }
 
-        var previousOtps = await dbContext.EmailVerificationOtps
+        await dbContext.EmailVerificationOtps
             .Where(x =>
                 x.UserId == user.Id &&
-                x.UsedAtUtc == null)
-            .ToListAsync(cancellationToken);
-
-        foreach (var previousOtp in previousOtps)
-        {
-            previousOtp.UsedAtUtc = now;
-        }
+                x.UsedAtUtc == null &&
+                x.VerifiedAtUtc == null &&
+                x.InvalidatedAtUtc == null)
+            .ExecuteUpdateAsync(setters => setters
+                .SetProperty(
+                    x => x.InvalidatedAtUtc,
+                    now),
+                cancellationToken);
 
         var otp = RandomNumberGenerator.GetInt32(0, 1_000_000)
             .ToString("D6");
@@ -120,7 +121,19 @@ public sealed class EmailVerificationService(
 
         dbContext.EmailVerificationOtps.Add(otpRecord);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
+        try
+        {
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex)
+        {
+            logger.LogError(
+                ex,
+                "Unable to persist verification OTP for user {UserId}.",
+                user.Id);
+
+            throw;
+        }
 
         var safeName = HtmlEncoder.Default.Encode(
             user.FullName ?? string.Empty);
@@ -191,7 +204,9 @@ public sealed class EmailVerificationService(
         var otpRecord = await dbContext.EmailVerificationOtps
             .Where(x =>
                 x.UserId == user.Id &&
-                x.UsedAtUtc == null)
+                x.UsedAtUtc == null &&
+                x.VerifiedAtUtc == null &&
+                x.InvalidatedAtUtc == null)
             .OrderByDescending(x => x.CreatedAtUtc)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -204,7 +219,7 @@ public sealed class EmailVerificationService(
             otpRecord.FailedAttempts >=
             verificationOptions.Value.MaxAttempts)
         {
-            otpRecord.UsedAtUtc = now;
+            otpRecord.InvalidatedAtUtc = now;
             await dbContext.SaveChangesAsync(cancellationToken);
             return false;
         }
@@ -225,34 +240,65 @@ public sealed class EmailVerificationService(
             if (otpRecord.FailedAttempts >=
                 verificationOptions.Value.MaxAttempts)
             {
-                otpRecord.UsedAtUtc = now;
+                otpRecord.InvalidatedAtUtc = now;
             }
 
             await dbContext.SaveChangesAsync(cancellationToken);
             return false;
         }
 
-        await using var transaction =
-            await dbContext.Database.BeginTransactionAsync(
-                cancellationToken);
+        var strategy = dbContext.Database.CreateExecutionStrategy();
 
-        user.EmailConfirmed = true;
-
-        var updateResult = await userManager.UpdateAsync(user);
-
-        if (!updateResult.Succeeded)
+        await strategy.ExecuteAsync(async () =>
         {
-            await transaction.RollbackAsync(cancellationToken);
-            return false;
-        }
+            await using var transaction =
+                await dbContext.Database.BeginTransactionAsync(
+                    cancellationToken);
 
-        otpRecord.UsedAtUtc = now;
-        otpRecord.LastAttemptAtUtc = now;
+            var claimed = await dbContext.EmailVerificationOtps
+                .Where(x =>
+                    x.Id == otpRecord.Id &&
+                    x.UsedAtUtc == null &&
+                    x.VerifiedAtUtc == null &&
+                    x.InvalidatedAtUtc == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.VerifiedAtUtc, now)
+                    .SetProperty(x => x.UsedAtUtc, now)
+                    .SetProperty(x => x.LastAttemptAtUtc, now),
+                    cancellationToken);
 
-        await dbContext.SaveChangesAsync(cancellationToken);
-        await transaction.CommitAsync(cancellationToken);
+            if (claimed == 0)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return;
+            }
 
-        return true;
+            user.EmailConfirmed = true;
+
+            var updateResult = await userManager.UpdateAsync(user);
+
+            if (!updateResult.Succeeded)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return;
+            }
+
+            await dbContext.EmailVerificationOtps
+                .Where(x =>
+                    x.UserId == user.Id &&
+                    x.Id != otpRecord.Id &&
+                    x.UsedAtUtc == null &&
+                    x.VerifiedAtUtc == null &&
+                    x.InvalidatedAtUtc == null)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(x => x.InvalidatedAtUtc, now),
+                    cancellationToken);
+
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
+
+        return user.EmailConfirmed;
     }
 
     public async Task ResendOtpAsync(
