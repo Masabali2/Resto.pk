@@ -51,6 +51,9 @@ public class ApplicationDbContext
     public DbSet<Tenant> Tenants => Set<Tenant>();
     public DbSet<StaffMembership> StaffMemberships => Set<StaffMembership>();
 
+    public DbSet<EmailVerificationOtp> EmailVerificationOtps =>
+        Set<EmailVerificationOtp>();
+
     // Restaurant
     public DbSet<Restaurant> Restaurants => Set<Restaurant>();
     public DbSet<RestaurantAsset> RestaurantAssets => Set<RestaurantAsset>();

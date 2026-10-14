@@ -12,4 +12,13 @@ public interface IAuthService
     Task<ApiResponse<LoginResult>> LoginAsync(
     LoginRequest request,
     CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<string>> VerifyOtpAsync(
+        VerifyEmailOtpRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<string>> ResendOtpAsync(
+        string email,
+        CancellationToken cancellationToken = default);
+
 }

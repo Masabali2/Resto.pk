@@ -1,6 +1,6 @@
 {
   "version": 2,
-  "dgSpecHash": "OTemQqr3GZY=",
+  "dgSpecHash": "1asQSo+hYsU=",
   "success": true,
   "projectFilePath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Api\\RestaurantSaaS.Api.csproj",
   "expectedPackageFiles": [
@@ -73,7 +73,7 @@
     "C:\\Users\\DELL\\.nuget\\packages\\system.configuration.configurationmanager\\9.0.11\\system.configuration.configurationmanager.9.0.11.nupkg.sha512",
     "C:\\Users\\DELL\\.nuget\\packages\\system.identitymodel.tokens.jwt\\8.19.2\\system.identitymodel.tokens.jwt.8.19.2.nupkg.sha512",
     "C:\\Users\\DELL\\.nuget\\packages\\system.memory.data\\8.0.1\\system.memory.data.8.0.1.nupkg.sha512",
-    "C:\\Users\\DELL\\.nuget\\packages\\system.security.cryptography.pkcs\\9.0.11\\system.security.cryptography.pkcs.9.0.11.nupkg.sha512",
+    "C:\\Users\\DELL\\.nuget\\packages\\system.security.cryptography.pkcs\\10.0.13\\system.security.cryptography.pkcs.10.0.13.nupkg.sha512",
     "C:\\Users\\DELL\\.nuget\\packages\\system.security.cryptography.protecteddata\\9.0.11\\system.security.cryptography.protecteddata.9.0.11.nupkg.sha512"
   ],
   "logs": []

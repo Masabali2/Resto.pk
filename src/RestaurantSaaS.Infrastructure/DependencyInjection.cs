@@ -5,6 +5,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Api.Services.Authentication;
 using RestaurantSaaS.Application.Common.Interfaces;
+using RestaurantSaaS.Application.Common.Options;
 using RestaurantSaaS.Application.Features.Restaurants;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Infrastructure.Persistence;
@@ -40,6 +41,21 @@ public static class DependencyInjection
             .AddEntityFrameworkStores<ApplicationDbContext>()
             .AddDefaultTokenProviders()
             .AddSignInManager();
+        services.AddOptions<EmailOptions>()
+    .Bind(configuration.GetSection(EmailOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+        services.AddOptions<EmailVerificationOptions>()
+            .Bind(configuration.GetSection(EmailVerificationOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
+        services.AddScoped<
+            IEmailVerificationService,
+            EmailVerificationService>();
+
+        services.AddTransient<IEmailService, EmailService>();
 
         services.AddHttpContextAccessor();
         services.AddScoped<IAuthCookieService, AuthCookieService>();

@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
@@ -17,17 +18,18 @@ public sealed class AuthService(
     IDateTimeProvider dateTimeProvider,
     IJwtTokenService jwtTokenService,
     ITenantMembershipService tenantMembershipService,
-    ApplicationDbContext dbContext) : IAuthService
+    IEmailVerificationService emailVerificationService,
+    ApplicationDbContext dbContext,
+    ILogger<AuthService> logger) : IAuthService
 {
-
     public async Task<ApiResponse<AuthenticatedUserDto>> RegisterAsync(
         RegisterRequest request,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var email = request.Email.Trim();
-        var userName = request.UserName.Trim();
+        var email = request.Email?.Trim() ?? string.Empty;
+        var userName = request.UserName?.Trim() ?? string.Empty;
 
         if (string.IsNullOrWhiteSpace(email) ||
             string.IsNullOrWhiteSpace(userName) ||
@@ -114,6 +116,25 @@ public sealed class AuthService(
                 errors);
         }
 
+        try
+        {
+            await emailVerificationService.SendOtpAsync(
+                user.Id,
+                cancellationToken);
+        }
+        catch (OperationCanceledException) when (
+            cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Failed to send registration verification OTP for user {UserId}.",
+                user.Id);
+        }
+
         var response = new AuthenticatedUserDto(
             user.Id,
             user.Email!,
@@ -185,11 +206,11 @@ public sealed class AuthService(
             .ToArray();
 
         var claims = new List<Claim>
-    {
-        new(ClaimTypes.NameIdentifier, user.Id.ToString()),
-        new(ClaimTypes.Email, user.Email!),
-        new(ClaimTypes.Name, user.UserName!)
-    };
+        {
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email!),
+            new(ClaimTypes.Name, user.UserName!)
+        };
 
         claims.AddRange(
             platformRoles.Select(
@@ -228,7 +249,6 @@ public sealed class AuthService(
             .ToArray();
 
         var activeTenant = membershipDtos.FirstOrDefault();
-
 
         IReadOnlyList<string> permissions = Array.Empty<string>();
 
@@ -272,6 +292,67 @@ public sealed class AuthService(
             authResponse);
 
         return ApiResponse<LoginResult>.Ok(loginResult);
+    }
+
+    public async Task<ApiResponse<string>> VerifyOtpAsync(
+        VerifyEmailOtpRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.Otp))
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_OTP_REQUEST",
+                "Email and verification code are required.");
+        }
+
+        var verified = await emailVerificationService.VerifyOtpAsync(
+            request.Email.Trim(),
+            request.Otp.Trim(),
+            cancellationToken);
+
+        if (!verified)
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_OTP",
+                "The verification code is invalid or expired.");
+        }
+
+        return ApiResponse<string>.Ok(
+            "Email verified successfully.");
+    }
+
+    public async Task<ApiResponse<string>> ResendOtpAsync(
+        string email,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_EMAIL",
+                "A valid email address is required.");
+        }
+
+        var normalizedEmail = email.Trim();
+
+        var user = await userManager.FindByEmailAsync(normalizedEmail);
+
+        if (user is null || user.EmailConfirmed)
+        {
+            return ApiResponse<string>.Ok(
+                "If the account requires verification, a new code will be sent.");
+        }
+
+        await emailVerificationService.ResendOtpAsync(
+            normalizedEmail,
+            cancellationToken);
+
+        return ApiResponse<string>.Ok(
+            "If the account requires verification, a new code will be sent.");
     }
 
     private static ApiResponse<LoginResult> InvalidCredentials() =>

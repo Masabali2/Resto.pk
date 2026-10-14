@@ -5,6 +5,7 @@ using RestaurantSaaS.Api.Extensions;
 using RestaurantSaaS.Api.Services.Authentication;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
+using RestaurantSaaS.Application.Features.Auth.DTOs;
 using RestaurantSaaS.Application.Features.Authentication.DTOs;
 
 namespace RestaurantSaaS.Api.Controllers;
@@ -69,6 +70,33 @@ public class AuthController : ControllerBase
 
         return Ok(ApiResponse<AuthResultDto>.Ok(login.Response));
     }
+
+    [HttpPost("verify-otp")]
+    [AllowAnonymous]
+    public async Task<IActionResult> VerifyOtp(
+        [FromBody] VerifyEmailOtpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _authService.VerifyOtpAsync(
+            request,
+            cancellationToken);
+
+        return this.ToActionResult(result);
+    }
+
+    [HttpPost("resend-otp")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ResendOtp(
+        [FromBody] SendEmailVerificationOtpRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await _authService.ResendOtpAsync(
+            request.Email,
+            cancellationToken);
+
+        return this.ToActionResult(result);
+    }
+
 
     [HttpPost("logout")]
     [Authorize]
