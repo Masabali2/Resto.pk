@@ -1,9 +1,9 @@
-
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi;
 using RestaurantSaaS.Api.Extensions;
 using RestaurantSaaS.Api.Filters;
 using RestaurantSaaS.Api.Middleware;
@@ -35,10 +35,36 @@ builder.Services.AddSingleton<
     PermissionPolicyProvider>();
 
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new OpenApiInfo
+    {
+        Title = "RestaurantSaaS.Api",
+        Version = "v1"
+    });
+
+    options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = ParameterLocation.Header,
+        Description = "Enter your JWT access token."
+    });
+
+    options.AddSecurityRequirement(document =>
+        new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
+        });
+});
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
 builder.Services.AddTenantAuthorization();
+
 builder.Services
     .AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
@@ -77,23 +103,8 @@ builder.Services
 
                 ClockSkew = TimeSpan.FromSeconds(30)
             };
-        options.Events = new JwtBearerEvents
-        {
-            OnMessageReceived = context =>
-            {
-                if (string.IsNullOrEmpty(
-                        context.Request.Headers.Authorization) &&
-                    context.Request.Cookies.TryGetValue(
-                        "resto_access_token",
-                        out var token))
-                {
-                    context.Token = token;
-                }
-
-                return Task.CompletedTask;
-            }
-        };
     });
+
 builder.Services.AddScoped<FluentValidationActionFilter>();
 
 builder.Services.AddControllers(options =>
@@ -120,15 +131,20 @@ app.UseSerilogRequestLogging();
 
 if (app.Environment.IsDevelopment())
 {
-
     app.UseSwagger();
     app.UseSwaggerUI();
 }
+
 app.UseMiddleware<HandleExceptionMiddleware>();
+
 app.UseHttpsRedirection();
+
 app.UseAuthentication();
+
 app.UseMiddleware<TenantResolutionMiddleware>();
+
 app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

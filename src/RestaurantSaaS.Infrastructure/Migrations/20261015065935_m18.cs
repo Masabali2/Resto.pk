@@ -6,7 +6,7 @@ using Microsoft.EntityFrameworkCore.Migrations;
 namespace RestaurantSaaS.Infrastructure.Migrations
 {
     /// <inheritdoc />
-    public partial class M8_AuthTokens : Migration
+    public partial class m18 : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
