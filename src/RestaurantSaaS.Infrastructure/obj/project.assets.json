@@ -1492,31 +1492,24 @@
     ]
   },
   "packageFolders": {
-    "C:\\Users\\DELL\\.nuget\\packages\\": {},
-    "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages": {}
+    "/root/.nuget/packages/": {}
   },
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Infrastructure\\RestaurantSaaS.Infrastructure.csproj",
+      "projectUniqueName": "/workspace/src/RestaurantSaaS.Infrastructure/RestaurantSaaS.Infrastructure.csproj",
       "projectName": "RestaurantSaaS.Infrastructure",
-      "projectPath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Infrastructure\\RestaurantSaaS.Infrastructure.csproj",
-      "packagesPath": "C:\\Users\\DELL\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Infrastructure\\obj\\",
+      "projectPath": "/workspace/src/RestaurantSaaS.Infrastructure/RestaurantSaaS.Infrastructure.csproj",
+      "packagesPath": "/root/.nuget/packages/",
+      "outputPath": "/workspace/src/RestaurantSaaS.Infrastructure/obj/",
       "projectStyle": "PackageReference",
-      "fallbackFolders": [
-        "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
-      ],
       "configFilePaths": [
-        "C:\\Users\\DELL\\AppData\\Roaming\\NuGet\\NuGet.Config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.FallbackLocation.config",
-        "C:\\Program Files (x86)\\NuGet\\Config\\Microsoft.VisualStudio.Offline.config"
+        "/root/.nuget/NuGet/NuGet.Config"
       ],
       "originalTargetFrameworks": [
         "net10.0"
       ],
       "sources": {
-        "C:\\Program Files (x86)\\Microsoft SDKs\\NuGetPackages\\": {},
         "https://api.nuget.org/v3/index.json": {}
       },
       "frameworks": {
@@ -1524,11 +1517,11 @@
           "framework": "net10.0",
           "targetAlias": "net10.0",
           "projectReferences": {
-            "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Application\\RestaurantSaaS.Application.csproj": {
-              "projectPath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Application\\RestaurantSaaS.Application.csproj"
+            "/workspace/src/RestaurantSaaS.Application/RestaurantSaaS.Application.csproj": {
+              "projectPath": "/workspace/src/RestaurantSaaS.Application/RestaurantSaaS.Application.csproj"
             },
-            "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Domain\\RestaurantSaaS.Domain.csproj": {
-              "projectPath": "C:\\Users\\DELL\\Music\\Resto.pk\\src\\RestaurantSaaS.Domain\\RestaurantSaaS.Domain.csproj"
+            "/workspace/src/RestaurantSaaS.Domain/RestaurantSaaS.Domain.csproj": {
+              "projectPath": "/workspace/src/RestaurantSaaS.Domain/RestaurantSaaS.Domain.csproj"
             }
           }
         }
@@ -1598,7 +1591,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.401/PortableRuntimeIdentifierGraph.json",
+        "runtimeIdentifierGraphPath": "/usr/local/dotnet/sdk/10.0.402/PortableRuntimeIdentifierGraph.json",
         "packagesToPrune": {
           "Microsoft.AspNetCore": "(,10.0.32767]",
           "Microsoft.AspNetCore.Antiforgery": "(,10.0.32767]",
