@@ -16,13 +16,16 @@ public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
     private readonly IAuthCookieService _authCookieService;
+    private readonly IEmailNotificationService _emailNotificationService;
 
     public AuthController(
         IAuthService authService,
-        IAuthCookieService authCookieService)
+        IAuthCookieService authCookieService,
+        IEmailNotificationService emailNotificationService)
     {
         _authService = authService;
         _authCookieService = authCookieService;
+        _emailNotificationService = emailNotificationService;
     }
 
     [HttpPost("register")]
@@ -67,6 +70,13 @@ public class AuthController : ControllerBase
             login.AccessTokenExpiresAtUtc,
             login.RefreshToken,
             login.RefreshTokenExpiresAtUtc);
+
+        var user = login.Response.User;
+        _ = _emailNotificationService.NotifyLoginAsync(
+            user.Id,
+            user.Email,
+            user.UserName,
+            CancellationToken.None);
 
         return Ok(ApiResponse<AuthResultDto>.Ok(login.Response));
     }

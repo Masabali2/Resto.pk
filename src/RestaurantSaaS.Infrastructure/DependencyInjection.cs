@@ -60,6 +60,7 @@ public static class DependencyInjection
             EmailVerificationService>();
 
         services.AddTransient<IEmailService, EmailService>();
+        services.AddScoped<IEmailNotificationService, EmailNotificationService>();
 
         services.AddHttpContextAccessor();
         services.AddScoped<IAuthCookieService, AuthCookieService>();
