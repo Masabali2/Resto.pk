@@ -12,15 +12,15 @@ using RestaurantSaaS.Infrastructure.Persistence;
 namespace RestaurantSaaS.Infrastructure.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    [Migration("20261014105741_M8_AuthTokens")]
-    partial class M8_AuthTokens
+    [Migration("20261015065935_m18")]
+    partial class m18
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.13")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -324,7 +324,7 @@ namespace RestaurantSaaS.Infrastructure.Migrations
 
                     b.ToTable("Customers", null, t =>
                         {
-                            t.HasCheckConstraint("CK_Customers_IdentityRequired", "[Name] IS NOT NULL\nOR [Phone] IS NOT NULL\nOR [Email] IS NOT NULL");
+                            t.HasCheckConstraint("CK_Customers_IdentityRequired", "[Name] IS NOT NULL\r\nOR [Phone] IS NOT NULL\r\nOR [Email] IS NOT NULL");
                         });
                 });
 
