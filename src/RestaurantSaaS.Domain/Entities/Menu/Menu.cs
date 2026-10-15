@@ -103,17 +103,6 @@ public class Menu : AuditableEntity, ITenantOwned
         UpdatedAt = DateTime.UtcNow;
     }
 
-    public void Unpublish()
-    {
-        EnsureNotArchived();
-
-        if (Status != MenuStatus.Published)
-            throw new DomainException("MENU_NOT_PUBLISHED", "Only a published menu can be unpublished.");
-
-        Status = MenuStatus.Draft;
-        UpdatedAt = DateTime.UtcNow;
-    }
-
     public void Archive()
     {
         if (Status == MenuStatus.Archived)

@@ -4,7 +4,6 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Models;
-using RestaurantSaaS.Domain.Exceptions;
 using System.Text.Json;
 
 namespace RestaurantSaaS.Api.Middleware;
@@ -117,12 +116,6 @@ public sealed class HandleExceptionMiddleware(
                 StatusCodes.Status409Conflict,
                 "CONCURRENCY_CONFLICT",
                 "The resource was modified by another operation. Please reload and try again.",
-                null),
-
-            DomainException ex => (
-                StatusCodes.Status422UnprocessableEntity,
-                ex.Code,
-                ex.Message,
                 null),
 
             _ => (

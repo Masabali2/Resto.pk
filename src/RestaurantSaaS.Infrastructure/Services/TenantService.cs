@@ -119,59 +119,6 @@ public sealed class TenantService(
         }
     }
 
-    public async Task<PagedResult<TenantAdminDto>> ListForPlatformAsync(
-        string? status,
-        string? search,
-        int page,
-        int pageSize,
-        CancellationToken ct = default)
-    {
-        page = Math.Max(1, page);
-        pageSize = Math.Clamp(pageSize, 1, 100);
-
-        var previous = db.DisableTenantFilters;
-        db.DisableTenantFilters = true;
-        try
-        {
-            var query = db.Tenants.AsNoTracking().IgnoreQueryFilters();
-
-            if (!string.IsNullOrWhiteSpace(status))
-            {
-                if (!Enum.TryParse<TenantStatus>(status, ignoreCase: false, out var parsed))
-                    throw new DomainException("TENANT_STATUS_INVALID", "Unknown tenant status filter.");
-
-                query = query.Where(t => t.Status == parsed);
-            }
-
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                var term = search.Trim();
-                query = query.Where(t => EF.Functions.Like(t.Name, $"%{term}%") ||
-                                         EF.Functions.Like(t.Slug, $"%{term}%"));
-            }
-
-            var total = await query.CountAsync(ct);
-
-            var items = await query
-                .OrderByDescending(t => t.CreatedAt)
-                .Skip((page - 1) * pageSize)
-                .Take(pageSize)
-                .ToListAsync(ct);
-
-            return new PagedResult<TenantAdminDto>
-            {
-                Items = items.Select(ToAdminDto).ToList(),
-                Page = page,
-                PageSize = pageSize,
-                TotalCount = total
-            };
-        }
-        finally
-        {
-            db.DisableTenantFilters = previous;
-        }
-    }
-
     // ---------------- helpers ----------------
 
     /// <summary>

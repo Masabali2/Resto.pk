@@ -1,5 +1,4 @@
 using RestaurantSaaS.Application.Common.Authorization;
-using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Tenants.DTOs;
 
 namespace RestaurantSaaS.Application.Features.Tenants;
@@ -24,14 +23,6 @@ public interface ITenantService
 
     /// <summary>Platform-admin activation/suspension/cancellation.</summary>
     Task<TenantAdminDto> ChangeStatusForPlatformAsync(Guid tenantId, string status, CancellationToken ct = default);
-
-    /// <summary>Platform-admin cross-tenant listing with status filter and search. PlatformAdminOnly policy at the boundary.</summary>
-    Task<PagedResult<TenantAdminDto>> ListForPlatformAsync(
-        string? status,
-        string? search,
-        int page,
-        int pageSize,
-        CancellationToken ct = default);
 }
 
 /// <summary>Permission names added for Phase 3 tenant/staff operations that require elevated checks.</summary>
