@@ -3,7 +3,6 @@ using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Files;
 using RestaurantSaaS.Application.Common.Models;
-using RestaurantSaaS.Application.Features.MenuItems;
 using RestaurantSaaS.Application.Features.MenuItems.DTOs;
 using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Exceptions;

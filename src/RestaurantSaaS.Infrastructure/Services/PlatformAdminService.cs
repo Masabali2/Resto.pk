@@ -2,7 +2,6 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Models;
-using RestaurantSaaS.Application.Features.Platform;
 using RestaurantSaaS.Application.Features.Platform.DTOs;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Domain.Enums;
@@ -163,33 +162,49 @@ public sealed class PlatformAdminService(
             user.Id, user.UserName, user.Email, user.FirstName, user.LastName,
             user.EmailConfirmed, user.LockoutEnabled, user.LockoutEnd,
             user.CreatedAt, user.LastLoginAt,
-            roles?.Platform ?? Array.Empty<string>(),
-            roles?.Tenant ?? Array.Empty<string>());
+            roles.Platform ?? Array.Empty<string>(),
+            roles.Tenant ?? Array.Empty<string>());
     }
 
-    public async Task SetUserLockoutAsync(Guid userId, bool lockedOutUntilNextSignIn, CancellationToken ct = default)
+
+    public async Task SetUserLockoutAsync(
+        Guid userId,
+        bool lockedOutUntilNextSignIn,
+        CancellationToken ct = default)
     {
         var user = await userManager.FindByIdAsync(userId.ToString())
-                   ?? throw new NotFoundException("User", userId);
+            ?? throw new NotFoundException("User", userId);
 
         IdentityResult result;
 
         if (lockedOutUntilNextSignIn)
         {
             result = await userManager.SetLockoutEnabledAsync(user, true);
+
             if (result.Succeeded)
-                result = await userManager.SetAccessFailedAsync(user.Id, ct);
+            {
+                result = await userManager.SetLockoutEndDateAsync(
+                    user,
+                    DateTimeOffset.MaxValue);
+            }
         }
         else
         {
-            result = await userManager.SetLockoutEnabledAsync(user, false);
+            result = await userManager.SetLockoutEndDateAsync(user, null);
+
             if (result.Succeeded)
+            {
                 result = await userManager.ResetAccessFailedCountAsync(user);
+            }
         }
 
         if (!result.Succeeded)
-            throw new ConflictException(string.Join("; ", result.Errors.Select(e => e.Description)));
+        {
+            throw new ConflictException(
+                string.Join("; ", result.Errors.Select(e => e.Description)));
+        }
     }
+
 
     public async Task<PlatformTenantDetailDto> GetTenantDetailAsync(Guid tenantId, CancellationToken ct = default)
     {

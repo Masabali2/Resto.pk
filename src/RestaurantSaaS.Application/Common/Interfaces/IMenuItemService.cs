@@ -1,7 +1,7 @@
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.MenuItems.DTOs;
 
-namespace RestaurantSaaS.Application.Features.MenuItems;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 public interface IMenuItemService
 {

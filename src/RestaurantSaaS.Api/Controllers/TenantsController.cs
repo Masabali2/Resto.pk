@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Authentication.DTOs;
-using RestaurantSaaS.Application.Features.Tenants;
 using RestaurantSaaS.Application.Features.Tenants.DTOs;
 using RestaurantSaaS.Infrastructure.Tenancy;
 

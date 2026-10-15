@@ -5,17 +5,14 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Api.Services.Authentication;
-using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Options;
-using RestaurantSaaS.Application.Features.Restaurants;
-using RestaurantSaaS.Application.Features.Websites;
-using RestaurantSaaS.Application.Features.Tenants;
 using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
 using RestaurantSaaS.Infrastructure.Tenancy;
-
+using RestaurantSaaS.Application.Features.Staff;
+using RestaurantSaaS.Application.Common.Entitlements;
 namespace RestaurantSaaS.Infrastructure;
 
 public static class DependencyInjection
@@ -86,6 +83,13 @@ public static class DependencyInjection
         services.AddScoped<IWebsiteTemplateService, WebsiteTemplateService>();
         services.AddScoped<IWebsiteService, WebsiteService>();
         services.AddScoped<IPublicSiteService, PublicSiteService>();
+        services.AddScoped<IFileStorageService, LocalFileStorageService>();
+        services.AddScoped<IMenuCategoryService, MenuCategoryService>();
+        services.AddScoped<IMenuItemService, MenuItemService>();
+        services.AddScoped<IStaffService, StaffService>();
+        services.AddScoped<IPlatformAdminService, PlatformAdminService>();
+        services.AddScoped<IMenuService, MenuService>();
+        services.AddScoped<IEntitlementService, EntitlementService>();
 
         RegisterValidators(services);
 
@@ -94,39 +98,9 @@ public static class DependencyInjection
 
     private static void RegisterValidators(IServiceCollection services)
     {
-        var validatorOpenType = typeof(IValidator<>);
-        var seen = new HashSet<Type>();
+        var applicationAssembly = Assembly.Load("RestaurantSaaS.Application");
 
-        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-        {
-            Type[] types;
-            try
-            {
-                types = assembly.GetTypes();
-            }
-            catch (ReflectionTypeLoadException ex)
-            {
-                types = ex.Types.Where(t => t is not null).ToArray()!;
-            }
-            catch (Exception)
-            {
-                continue;
-            }
-
-            foreach (var type in types)
-            {
-                if (!type.IsClass || type.IsAbstract)
-                    continue;
-
-                foreach (var serviceType in type.GetInterfaces()
-                             .Where(i => i.IsGenericType && i.GetGenericTypeDefinition() == validatorOpenType))
-                {
-                    if (seen.Add(serviceType))
-                    {
-                        services.AddScoped(serviceType, type);
-                    }
-                }
-            }
-        }
+        services.AddValidatorsFromAssembly(applicationAssembly);
     }
+
 }

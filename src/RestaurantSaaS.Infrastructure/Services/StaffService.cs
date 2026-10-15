@@ -71,7 +71,7 @@ public sealed class StaffService(
         await RequirePermissionAsync(Permissions.StaffView, ct);
 
         var m = await LoadOwnedMembershipAsync(membershipId, ct);
-        await AttachUserAndRoleAsync(m, ct);
+        await m.AttachUserAndRoleAsync(db, ct);
 
         return ToDto(m);
     }
@@ -122,7 +122,7 @@ public sealed class StaffService(
             throw new ConflictException($"A membership already exists for '{email}' in this tenant.");
         }
 
-        await AttachUserAndRoleAsync(membership, ct);
+        await membership.AttachUserAndRoleAsync(db, ct);
         return ToDto(membership);
     }
 
@@ -152,7 +152,7 @@ public sealed class StaffService(
         target.ChangeRole(newRoleId);
         await db.SaveChangesAsync(ct);
 
-        await AttachUserAndRoleAsync(target, ct);
+        await target.AttachUserAndRoleAsync(db, ct);
         return ToDto(target);
     }
 
@@ -188,7 +188,7 @@ public sealed class StaffService(
         }
 
         await db.SaveChangesAsync(ct);
-        await AttachUserAndRoleAsync(target, ct);
+        await target.AttachUserAndRoleAsync(db, ct);
         return ToDto(target);
     }
 
@@ -220,7 +220,7 @@ public sealed class StaffService(
 
     private async Task EnsureNotLastActiveOwnerAsync(StaffMembership target, CancellationToken ct)
     {
-        await AttachUserAndRoleAsync(target, ct);
+        await target.AttachUserAndRoleAsync(db, ct);
         if (target.Status != MembershipStatus.Active) return;
         if (target.Role?.Name != Permissions.TenantRoles.Owner) return;
 
@@ -238,7 +238,7 @@ public sealed class StaffService(
 
     private async Task<bool> IsCurrentlyLastActiveOwnerAsync(StaffMembership target, CancellationToken ct)
     {
-        await AttachUserAndRoleAsync(target, ct);
+        await target.AttachUserAndRoleAsync(db, ct);
         if (target.Role?.Name != Permissions.TenantRoles.Owner) return false;
 
         var tenantId = tenantContext.GetRequiredTenantId();

@@ -2,8 +2,6 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Files;
-using RestaurantSaaS.Application.Common.Interfaces;
-using RestaurantSaaS.Application.Features.Restaurants;
 using RestaurantSaaS.Application.Features.Restaurants.DTOs;
 using RestaurantSaaS.Domain.Entities.Files;
 using RestaurantSaaS.Domain.Entities.Restaurants;

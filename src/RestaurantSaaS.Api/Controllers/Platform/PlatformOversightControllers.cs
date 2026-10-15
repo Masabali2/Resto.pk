@@ -1,10 +1,11 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Common.Options;
 using RestaurantSaaS.Application.Features.Subscriptions;
 using RestaurantSaaS.Application.Features.Subscriptions.DTOs;
-using RestaurantSaaS.Application.Features.Tenants;
+using RestaurantSaaS.Application.Features.Tenants.DTOs;
 
 namespace RestaurantSaaS.Api.Controllers.Platform;
 

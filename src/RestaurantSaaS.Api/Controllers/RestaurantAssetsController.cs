@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RestaurantSaaS.Application.Common.Authorization;
+using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Common.Options;
-using RestaurantSaaS.Application.Features.Restaurants;
 using RestaurantSaaS.Application.Features.Restaurants.DTOs;
 
 namespace RestaurantSaaS.Api.Controllers;

@@ -1,7 +1,7 @@
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Platform.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Platform;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 public interface IPlatformAdminService
 {

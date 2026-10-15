@@ -2,7 +2,7 @@ using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Tenants.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Tenants;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 /// <summary>
 /// Tenant onboarding & management use cases. Implemented in Infrastructure

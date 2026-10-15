@@ -1,6 +1,6 @@
 using RestaurantSaaS.Application.Features.Restaurants.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Restaurants;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 /// <summary>
 /// Restaurant branding asset use cases. All operations are scoped to the
