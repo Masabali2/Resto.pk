@@ -2,7 +2,7 @@
 using FluentValidation;
 using RestaurantSaaS.Application.Features.Authentication.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Authentication;
+namespace RestaurantSaaS.Application.Features.Authentication.Validator;
 
 public sealed class RegisterRequestValidator : AbstractValidator<RegisterRequest>
 {
