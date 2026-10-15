@@ -15,5 +15,8 @@ public enum NotificationType
     StaffUpdate = 4,
 
     /// <summary>Generic system message for the tenant.</summary>
-    System = 5
+    System = 5,
+
+    /// <summary>A successful sign-in security notification (email alert).</summary>
+    SecuritySignIn = 6
 }

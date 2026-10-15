@@ -20,6 +20,8 @@ public sealed class AuthService(
     ITenantMembershipService tenantMembershipService,
     IEmailVerificationService emailVerificationService,
     ICurrentUserService currentUserService,
+    IEmailNotificationService emailNotificationService,
+    IInAppNotificationService inAppNotificationService,
     ApplicationDbContext dbContext,
     ILogger<AuthService> logger) : IAuthService
 {
@@ -284,6 +286,20 @@ public sealed class AuthService(
             permissions);
 
         await dbContext.SaveChangesAsync(cancellationToken);
+
+        // Notification hooks: fire only AFTER the successful login has been
+        // fully persisted. Both calls swallow delivery failures internally,
+        // so a notification problem can never invalidate authentication or
+        // alter the login response contract.
+        //  - Email security alert via the durable outbox (Event A).
+        //  - In-app security alert for the signed-in user.
+        await emailNotificationService.NotifySuccessfulLoginAsync(
+            user.Id,
+            cancellationToken);
+
+        await inAppNotificationService.NotifySuccessfulLoginAsync(
+            user.Id,
+            cancellationToken);
 
         var loginResult = new LoginResult(
             accessToken,

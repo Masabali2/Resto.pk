@@ -58,6 +58,12 @@ public static class DependencyInjection
 
         services.AddTransient<IEmailService, EmailService>();
 
+        // Centralized email notifications: producers enqueue durable outbox
+        // messages; the background worker delivers them via IEmailService.
+        services.AddScoped<IEmailNotificationService, EmailNotificationService>();
+        services.AddScoped<IInAppNotificationService, InAppNotificationService>();
+        services.AddHostedService<EmailOutboxDeliveryWorker>();
+
         services.AddHttpContextAccessor();
         services.AddScoped<IAuthCookieService, AuthCookieService>();
 
