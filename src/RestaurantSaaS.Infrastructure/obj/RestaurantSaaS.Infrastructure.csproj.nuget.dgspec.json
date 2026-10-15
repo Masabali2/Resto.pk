@@ -64,13 +64,13 @@
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
               "suppressParent": "All",
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             },
             "Microsoft.EntityFrameworkCore.Tools": {
               "include": "Runtime, Build, Native, ContentFiles, Analyzers, BuildTransitive",
               "suppressParent": "All",
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             },
             "System.Security.Cryptography.Pkcs": {
               "target": "Package",
@@ -564,7 +564,7 @@
           "dependencies": {
             "Microsoft.Extensions.Identity.Stores": {
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             }
           },
           "imports": [
@@ -916,21 +916,25 @@
           "framework": "net10.0",
           "targetAlias": "net10.0",
           "dependencies": {
+            "FluentValidation.DependencyInjectionExtensions": {
+              "target": "Package",
+              "version": "[12.2.0, )"
+            },
             "Hangfire.Core": {
               "target": "Package",
               "version": "[1.8.25, )"
             },
             "Microsoft.AspNetCore.Identity.EntityFrameworkCore": {
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             },
             "Microsoft.EntityFrameworkCore.Relational": {
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             },
             "Microsoft.EntityFrameworkCore.SqlServer": {
               "target": "Package",
-              "version": "[10.0.12, )"
+              "version": "[10.0.13, )"
             },
             "Newtonsoft.Json": {
               "target": "Package",

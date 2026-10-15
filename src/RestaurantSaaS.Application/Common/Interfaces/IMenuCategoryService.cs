@@ -1,6 +1,6 @@
 using RestaurantSaaS.Application.Features.MenuCategories.DTOs;
 
-namespace RestaurantSaaS.Application.Features.MenuCategories;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 public interface IMenuCategoryService
 {

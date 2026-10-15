@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
-using RestaurantSaaS.Application.Features.Websites;
+using RestaurantSaaS.Application.Features.Restaurants.DTOs;
 using RestaurantSaaS.Application.Features.Websites.DTOs;
 
 namespace RestaurantSaaS.Api.Controllers;
@@ -25,4 +26,14 @@ public sealed class PublicSitesController(IPublicSiteService sites) : Controller
     [HttpGet("{slug}/menu")]
     public async Task<ActionResult<ApiResponse<IReadOnlyList<PublicMenuDto>>>> GetMenu(string slug, CancellationToken ct)
         => Ok(ApiResponse<IReadOnlyList<PublicMenuDto>>.Ok(await sites.GetMenuBySlugAsync(slug, ct)));
+
+    [HttpGet("{slug}/branding")]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<PublicRestaurantAssetDto>>>> GetBranding(
+        string slug,
+        IRestaurantAssetService assets,
+        CancellationToken ct)
+    {
+        var result = await assets.GetPublicAssetsBySlugAsync(slug, ct);
+        return Ok(ApiResponse<IReadOnlyList<PublicRestaurantAssetDto>>.Ok(result));
+    }
 }

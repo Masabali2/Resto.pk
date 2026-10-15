@@ -1,7 +1,7 @@
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Websites.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Websites;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 /// <summary>
 /// Platform-administration of the global website template catalogue.

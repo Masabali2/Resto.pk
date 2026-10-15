@@ -1,17 +1,18 @@
 
+using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Api.Services.Authentication;
-using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Options;
-using RestaurantSaaS.Application.Features.Restaurants;
+using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
 using RestaurantSaaS.Infrastructure.Tenancy;
-
+using RestaurantSaaS.Application.Features.Staff;
+using RestaurantSaaS.Application.Common.Entitlements;
 namespace RestaurantSaaS.Infrastructure;
 
 public static class DependencyInjection
@@ -75,9 +76,31 @@ public static class DependencyInjection
         services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<ITenantResolver, PublicTenantResolver>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();
         services.AddScoped<IRestaurantService, RestaurantService>();
+        services.AddScoped<IRestaurantAssetService, RestaurantAssetService>();
+        services.AddScoped<IWebsiteTemplateService, WebsiteTemplateService>();
+        services.AddScoped<IWebsiteService, WebsiteService>();
+        services.AddScoped<IPublicSiteService, PublicSiteService>();
+        services.AddScoped<IFileStorageService, LocalFileStorageService>();
+        services.AddScoped<IMenuCategoryService, MenuCategoryService>();
+        services.AddScoped<IMenuItemService, MenuItemService>();
+        services.AddScoped<IStaffService, StaffService>();
+        services.AddScoped<IPlatformAdminService, PlatformAdminService>();
+        services.AddScoped<IMenuService, MenuService>();
+        services.AddScoped<IEntitlementService, EntitlementService>();
+
+        RegisterValidators(services);
 
         return services;
     }
+
+    private static void RegisterValidators(IServiceCollection services)
+    {
+        var applicationAssembly = Assembly.Load("RestaurantSaaS.Application");
+
+        services.AddValidatorsFromAssembly(applicationAssembly);
+    }
+
 }

@@ -1,7 +1,7 @@
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Features.Restaurants.DTOs;
 
-namespace RestaurantSaaS.Application.Features.Restaurants;
+namespace RestaurantSaaS.Application.Common.Interfaces;
 
 /// <summary>
 /// Restaurant management use cases (Tenant 1 → M Restaurants). All operations

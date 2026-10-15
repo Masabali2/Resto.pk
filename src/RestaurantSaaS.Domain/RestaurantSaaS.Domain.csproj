@@ -15,7 +15,7 @@
     in Domain remains dependency-free.
   -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Extensions.Identity.Stores" Version="10.0.13" />
   </ItemGroup>
 
 </Project>
