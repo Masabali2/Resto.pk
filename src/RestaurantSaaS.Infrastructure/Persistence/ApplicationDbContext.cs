@@ -84,6 +84,13 @@ public class ApplicationDbContext
 
     // Platform services
     public DbSet<Notification> Notifications => Set<Notification>();
+
+    // Durable email outbox (centralized notifications). Not tenant-filtered:
+    // recipients include platform users and the delivery worker runs without
+    // an ambient request tenant.
+    public DbSet<EmailOutboxMessage> EmailOutboxMessages => Set<EmailOutboxMessage>();
+
+    public DbSet<NotificationDedupeKey> NotificationDedupeKeys => Set<NotificationDedupeKey>();
     public DbSet<FileMetadata> Files => Set<FileMetadata>();
     public DbSet<QRCode> QRCodes => Set<QRCode>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
