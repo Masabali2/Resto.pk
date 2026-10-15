@@ -2,6 +2,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
@@ -23,6 +24,7 @@ public sealed class AuthService(
     IEmailNotificationService emailNotificationService,
     IInAppNotificationService inAppNotificationService,
     ApplicationDbContext dbContext,
+    IConfiguration configuration,
     ILogger<AuthService> logger) : IAuthService
 {
     public async Task<ApiResponse<AuthenticatedUserDto>> RegisterAsync(
@@ -683,7 +685,166 @@ public sealed class AuthService(
 
         return ApiResponse<AuthResultDto>.Ok(authResponse);
     }
+    public async Task<ApiResponse<string>> ForgotPasswordAsync(
+        ForgotPasswordRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
 
+        const string responseMessage =
+            "If an account exists with this email, password reset instructions will be sent.";
+
+        var email = request.Email?.Trim();
+
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return ApiResponse<string>.Ok(responseMessage);
+        }
+
+        var user = await userManager.FindByEmailAsync(email);
+
+        if (user is null || !user.EmailConfirmed)
+        {
+            return ApiResponse<string>.Ok(responseMessage);
+        }
+
+        var frontendBaseUrl = configuration["Frontend:BaseUrl"];
+
+        if (!Uri.TryCreate(
+                frontendBaseUrl,
+                UriKind.Absolute,
+                out var frontendUri) ||
+            (frontendUri.Scheme != Uri.UriSchemeHttps &&
+             !frontendUri.IsLoopback))
+        {
+            logger.LogError(
+                "Frontend:BaseUrl is missing or invalid for password reset.");
+
+            return ApiResponse<string>.Ok(responseMessage);
+        }
+
+        var token = await userManager.GeneratePasswordResetTokenAsync(user);
+
+        var encodedToken =
+            Microsoft.AspNetCore.WebUtilities.WebEncoders.Base64UrlEncode(
+                System.Text.Encoding.UTF8.GetBytes(token));
+
+        var resetUrl =
+            $"{frontendUri.ToString().TrimEnd('/')}/reset-password" +
+            $"?email={Uri.EscapeDataString(user.Email!)}" +
+            $"&token={Uri.EscapeDataString(encodedToken)}";
+
+        await emailNotificationService.NotifyPasswordResetAsync(
+            user.Id,
+            resetUrl,
+            cancellationToken);
+
+        return ApiResponse<string>.Ok(responseMessage);
+    }
+    public async Task<ApiResponse<string>> ResetPasswordAsync(
+     ResetPasswordRequest request,
+     CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(request.Email) ||
+            string.IsNullOrWhiteSpace(request.Token) ||
+            string.IsNullOrWhiteSpace(request.NewPassword) ||
+            string.IsNullOrWhiteSpace(request.ConfirmPassword))
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_PASSWORD_RESET",
+                "Email, reset token, and password fields are required.");
+        }
+
+        var email = request.Email.Trim();
+
+        if (!string.Equals(
+            request.NewPassword,
+            request.ConfirmPassword,
+            StringComparison.Ordinal))
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_PASSWORD_MISMATCH",
+                "Password and confirmation password do not match.");
+        }
+
+        var user = await userManager.FindByEmailAsync(email);
+
+        if (user is null || !user.EmailConfirmed)
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_PASSWORD_RESET",
+                "The reset request is invalid or expired.");
+        }
+
+        string decodedToken;
+
+        try
+        {
+            var tokenBytes =
+                Microsoft.AspNetCore.WebUtilities.WebEncoders
+                    .Base64UrlDecode(request.Token.Trim());
+
+            decodedToken = System.Text.Encoding.UTF8.GetString(tokenBytes);
+
+            if (string.IsNullOrWhiteSpace(decodedToken))
+            {
+                return ApiResponse<string>.Fail(
+                    "AUTH_INVALID_PASSWORD_RESET",
+                    "The reset request is invalid or expired.");
+            }
+        }
+        catch (FormatException)
+        {
+            return ApiResponse<string>.Fail(
+                "AUTH_INVALID_PASSWORD_RESET",
+                "The reset request is invalid or expired.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var resetResult = await userManager.ResetPasswordAsync(
+            user,
+            decodedToken,
+            request.NewPassword);
+
+        if (!resetResult.Succeeded)
+        {
+            var errors = resetResult.Errors
+                .Select(error => new ValidationError(
+                    "Password",
+                    error.Description))
+                .ToList();
+
+            return ApiResponse<string>.Fail(
+                "AUTH_PASSWORD_RESET_FAILED",
+                "The password could not be reset. The token may be invalid or expired, or the password may not meet the requirements.",
+                errors);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var revokedAtUtc = dateTimeProvider.UtcNow;
+
+        await dbContext.RefreshTokens
+            .Where(token =>
+                token.UserId == user.Id &&
+                token.RevokedAtUtc == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(
+                        token => token.RevokedAtUtc,
+                        revokedAtUtc),
+                cancellationToken);
+
+        logger.LogInformation(
+            "Password reset completed and active refresh tokens revoked for user {UserId}.",
+            user.Id);
+
+        return ApiResponse<string>.Ok(
+            "Your password has been reset successfully.");
+    }
     private async Task RevokeAllForUserAsync(
         Guid userId,
         CancellationToken cancellationToken)

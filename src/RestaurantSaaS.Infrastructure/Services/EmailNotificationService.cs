@@ -6,6 +6,8 @@ using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Domain.Entities.Notifications;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Infrastructure.Persistence;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
@@ -355,7 +357,57 @@ public sealed class EmailNotificationService(
             throw;
         }
     }
+    public async Task NotifyPasswordResetAsync(
+    Guid userId,
+    string resetLink,
+    CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var user = await dbContext.Users
+                .AsNoTracking()
+                .FirstOrDefaultAsync(u => u.Id == userId, cancellationToken);
 
+            if (user is null ||
+                string.IsNullOrWhiteSpace(user.Email) ||
+                !user.EmailConfirmed)
+            {
+                logger.LogWarning(
+                    "Password reset notification skipped for user {UserId}.",
+                    userId);
+
+                return;
+            }
+
+            var linkHash = Convert.ToHexString(
+                SHA256.HashData(Encoding.UTF8.GetBytes(resetLink)));
+
+            var html = BuildPasswordResetHtml(
+                user.FullName,
+                resetLink);
+
+            await EnqueueAsync(
+                user.Email,
+                subject: "Reset your Resto.pk password",
+                htmlBody: html,
+                eventName: PasswordResetEvent,
+                dedupeKey: $"{userId:N}:{linkHash}",
+                cancellationToken: cancellationToken);
+        }
+        catch (OperationCanceledException)
+            when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                ex,
+                "Failed to queue password reset email for user {UserId}.",
+                userId);
+        }
+    }
+    public const string PasswordResetEvent = "auth.password-reset";
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is Microsoft.Data.SqlClient.SqlException sqlEx
         && (sqlEx.Number == 2627 || sqlEx.Number == 2601);
@@ -388,7 +440,16 @@ public sealed class EmailNotificationService(
             </html>
             """;
     }
-
+    private static string BuildPasswordResetHtml(
+    string userName,
+    string resetLink) => Wrap(
+    "Reset your Resto.pk password",
+    $"Hello {Enc(userName)},",
+    "We received a request to reset your account password.",
+    $"<a href=\"{Enc(resetLink)}\">Reset your password</a>",
+    "This link is time-limited and can only be used with a valid password-reset token.",
+    "If you did not request this reset, you can ignore this email.",
+    "Regards,<br/>Resto.pk Security Team");
     private static string BuildSignInHtml(string userName) => Wrap(
         "New sign-in to your Resto.pk account",
         $"Hello {Enc(userName)},",

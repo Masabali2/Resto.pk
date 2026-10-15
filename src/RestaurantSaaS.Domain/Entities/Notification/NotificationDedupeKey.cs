@@ -4,17 +4,6 @@ using RestaurantSaaS.Domain.Exceptions;
 
 namespace RestaurantSaaS.Domain.Entities.Notifications;
 
-/// <summary>
-/// Durable in-app notification dedupe record. One row per logical event key
-/// (e.g. "auth.signin:{userId}:{sessionHash}" or
-/// "order.created:{orderId}:{recipientUserId}"). Producers insert through the
-/// unique index before writing the user-facing Notification row, so retried
-/// events can never create duplicate alerts for a recipient.
-///
-/// Deliberately NOT tenant-owned: sign-in security alerts have no guaranteed
-/// tenant context and the table stores no personal data — only the stable
-/// event key.
-/// </summary>
 public class NotificationDedupeKey : AuditableEntity
 {
     public const int MaxKeyLength = 300;

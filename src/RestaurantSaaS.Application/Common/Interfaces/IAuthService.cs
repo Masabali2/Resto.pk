@@ -28,6 +28,14 @@ public interface IAuthService
     Task<ApiResponse<AuthResultDto>> GetCurrentUserAsync(
         CancellationToken cancellationToken = default);
 
+    Task<ApiResponse<string>> ForgotPasswordAsync(
+        ForgotPasswordRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<ApiResponse<string>> ResetPasswordAsync(
+        ResetPasswordRequest request,
+        CancellationToken cancellationToken = default);
+
     Task<ApiResponse<string>> LogoutAsync(
         string refreshToken,
         CancellationToken cancellationToken = default);

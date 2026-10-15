@@ -35,13 +35,10 @@ public interface IEmailNotificationService
         Guid orderId,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Event C: queues a customer status email after a valid status
-    /// transition has been persisted. Supported statuses: Confirmed,
-    /// Preparing, Completed, Cancelled. Other statuses are ignored.
-    /// Recipient is resolved exclusively from the persisted order — never
-    /// from caller-supplied input. Call only AFTER SaveChanges succeeded.
-    /// </summary>
+    Task NotifyPasswordResetAsync(
+    Guid userId,
+    string resetLink,
+    CancellationToken cancellationToken = default);
     Task NotifyOrderStatusChangedAsync(
         Guid orderId,
         OrderStatus newStatus,

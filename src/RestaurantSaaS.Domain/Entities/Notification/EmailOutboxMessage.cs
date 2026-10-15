@@ -5,19 +5,6 @@ using RestaurantSaaS.Domain.Exceptions;
 
 namespace RestaurantSaaS.Domain.Entities.Notifications;
 
-/// <summary>
-/// Durable email outbox record. Notification producers enqueue a message in the
-/// same database transaction that persists the business change; a background
-/// worker later delivers it through IEmailService with bounded retries.
-///
-/// Idempotency: (EventName, DedupeKey) has a unique index — enqueueing the same
-/// event twice never creates duplicate records or duplicate emails.
-///
-/// Deliberately NOT tenant-owned: recipients include platform users (sign-in
-/// security emails have no tenant context), and outbox rows must remain
-/// processable regardless of any ambient request tenant. No secrets or
-/// unnecessary personal data beyond the recipient address are stored.
-/// </summary>
 public class EmailOutboxMessage : AuditableEntity
 {
     public const int MaxSubjectLength = 500;
