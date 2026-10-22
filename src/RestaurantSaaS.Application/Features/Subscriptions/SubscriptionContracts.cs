@@ -28,13 +28,29 @@ public interface ISubscriptionPlanService
 
 public interface ITenantSubscriptionService
 {
+    /// <summary>
+    /// Complete subscription state of the active workspace: workspace status,
+    /// current subscription, trial eligibility and the available plans.
+    /// Available while the workspace is pending and after a subscription has
+    /// lapsed, so the upgrade experience is always reachable.
+    /// </summary>
     Task<CurrentSubscriptionStateDto> GetMyStateAsync(CancellationToken ct = default);
+
+    /// <summary>Plans that are currently offered to workspaces.</summary>
+    Task<IReadOnlyList<SubscriptionPlanDto>> ListAvailablePlansAsync(CancellationToken ct = default);
+
+    /// <summary>Whether the active workspace may still consume its free trial.</summary>
+    Task<TrialEligibilityDto> GetTrialEligibilityAsync(CancellationToken ct = default);
 
     Task<SubscriptionDto> GetByTenantAsync(Guid tenantId, CancellationToken ct = default);
 
     Task<IReadOnlyList<SubscriptionDto>> ListForTenantAsync(Guid tenantId, CancellationToken ct = default);
 
-    Task<SubscriptionDto> StartAsync(StartTenantSubscriptionRequest request, CancellationToken ct = default);
+    /// <summary>
+    /// Starts the 30-day free trial of the active workspace and activates the
+    /// workspace in the same transaction.
+    /// </summary>
+    Task<SubscriptionDto> StartTrialAsync(CancellationToken ct = default);
 
     Task<SubscriptionDto> ChangePlanAsync(Guid subscriptionId, ChangeTenantSubscriptionPlanRequest request, CancellationToken ct = default);
 

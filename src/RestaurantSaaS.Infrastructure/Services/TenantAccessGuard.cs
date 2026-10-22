@@ -8,13 +8,57 @@ using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
+/// <summary>
+/// Single entry point for tenant-scoped authorization.
+///
+/// Three distinct guarantees are exposed, because a workspace has three
+/// different states in which it may legitimately call the API:
+///
+///  1. <see cref="EnsureTenantMemberAsync"/> — the caller is an active member
+///     of the active workspace and its role grants the permission. This holds
+///     for pending, suspended and lapsed workspaces, so subscription management
+///     and the upgrade experience stay reachable.
+///  2. <see cref="EnsurePermissionAsync"/> — the same, plus the workspace is
+///     operationally active. Used by ordinary workspace features.
+///  3. <see cref="EnsureSubscriptionEntitledAsync"/> — the workspace holds a
+///     valid (non-expired) subscription. Used by subscription-protected
+///     operations.
+/// </summary>
 public sealed class TenantAccessGuard(
     ApplicationDbContext db,
     ITenantContext tenantContext,
     ICurrentUserService currentUser,
     ITenantMembershipService membershipService)
 {
-    public async Task<Guid> EnsurePermissionAsync(string requiredPermission, CancellationToken ct , bool requireEntitlement = true)
+    /// <summary>
+    /// Resolves the acting workspace for an operation that requires an
+    /// operationally active workspace: active membership, role permission and
+    /// an active tenant.
+    /// </summary>
+    public async Task<Guid> EnsurePermissionAsync(
+        string requiredPermission,
+        CancellationToken ct)
+    {
+        var tenantId = await EnsureTenantMemberAsync(requiredPermission, ct);
+
+        var tenantOperational = await db.Tenants.AsNoTracking()
+            .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
+
+        if (!tenantOperational)
+            throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
+
+        return tenantId;
+    }
+
+    /// <summary>
+    /// Resolves the acting workspace for operations that must stay available
+    /// while the workspace is pending, suspended, or its subscription has
+    /// lapsed. Only membership and the role permission are verified — the
+    /// workspace status and the subscription are deliberately NOT checked.
+    /// </summary>
+    public async Task<Guid> EnsureTenantMemberAsync(
+        string requiredPermission,
+        CancellationToken ct)
     {
         var userId = currentUser.UserId ?? throw new NotAuthenticatedException();
 
@@ -35,18 +79,23 @@ public sealed class TenantAccessGuard(
             throw new ForbiddenException($"Your role '{membership.RoleName}' cannot perform this operation.");
         }
 
-        var tenantOperational = await db.Tenants.AsNoTracking()
-            .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
-        if (!tenantOperational)
-            throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
-        if(requireEntitlement)
-            await EnsureSubscriptionEntitledAsync(tenantId, ct);
         return tenantId;
     }
+
+    /// <summary>
+    /// Ensures the workspace holds a subscription that is valid right now.
+    ///
+    /// The check is evaluated against the persisted subscription at the moment
+    /// of the call — it never depends on a background job having marked the
+    /// subscription as expired, and it never trusts a client supplied flag.
+    /// </summary>
     public async Task EnsureSubscriptionEntitledAsync(
-    Guid tenantId,
-    CancellationToken ct = default)
+        Guid tenantId,
+        CancellationToken ct = default)
     {
+        if (!tenantContext.HasTenant || tenantContext.GetRequiredTenantId() != tenantId)
+            throw new CrossTenantAccessException();
+
         var now = DateTime.UtcNow;
 
         var subscription = await db.Subscriptions
@@ -82,49 +131,42 @@ public sealed class TenantAccessGuard(
                 "Your trial or subscription has ended. Select an available plan to restore access.");
         }
     }
-    public async Task<Guid> EnsureTrialOnboardingAccessAsync(CancellationToken ct)
+
+    /// <summary>
+    /// Resolves the acting workspace for a free-trial activation.
+    ///
+    /// Only the workspace owner may activate the trial: the owner is the role
+    /// that carries the billing responsibility, and a trial must not be
+    /// triggered by a delegated team member.
+    /// </summary>
+    public async Task<Guid> EnsureTrialOwnerAsync(CancellationToken ct = default)
     {
-        var userId = currentUser.UserId
-            ?? throw new NotAuthenticatedException();
+        var userId = currentUser.UserId ?? throw new NotAuthenticatedException();
 
         if (!tenantContext.HasTenant)
             throw new CrossTenantAccessException();
 
         var tenantId = tenantContext.GetRequiredTenantId();
 
-        var membership = await membershipService.GetMembershipAsync(
-            userId,
-            tenantId,
-            ct);
+        var membership = await membershipService.GetMembershipAsync(userId, tenantId, ct)
+            ?? throw new CrossTenantAccessException();
 
-        if (membership is null ||
-            membership.Status != (int)MembershipStatus.Active)
-        {
+        if (membership.Status != (int)MembershipStatus.Active)
             throw new CrossTenantAccessException();
-        }
 
         if (!string.Equals(
                 membership.RoleName,
-                "Owner",
+                Permissions.TenantRoles.Owner,
                 StringComparison.Ordinal))
         {
             throw new ForbiddenException(
-                "Only the tenant owner can start the trial.");
+                "Only the workspace owner can start the free trial.");
         }
 
-        var tenantExists = await db.Tenants
-            .AsNoTracking()
-            .AnyAsync(
-                t => t.Id == tenantId &&
-                     t.Status == TenantStatus.Pending &&
-                     !t.IsDeleted,
-                ct);
-
-        if (!tenantExists)
+        if (!Permissions.RolePermissions.TryGetValue(membership.RoleName, out var perms) ||
+            !perms.Contains(Permissions.TenantUpdate))
         {
-            throw new DomainException(
-                "TENANT_NOT_ELIGIBLE_FOR_TRIAL",
-                "Only a pending tenant can start its initial trial.");
+            throw new ForbiddenException($"Your role '{membership.RoleName}' cannot perform this operation.");
         }
 
         return tenantId;

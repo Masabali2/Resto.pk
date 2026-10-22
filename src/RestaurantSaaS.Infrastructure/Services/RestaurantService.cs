@@ -26,6 +26,10 @@ public sealed class RestaurantService(
     {
         var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantCreate, ct);
 
+        // Creating a restaurant is subscription protected: a workspace without a
+        // valid trial or subscription may not grow its restaurant portfolio.
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
+
         var address = Address.Create(
             request.Address.Line1, request.Address.City, request.Address.Country,
             request.Address.Line2, request.Address.PostalCode);
@@ -87,7 +91,9 @@ public sealed class RestaurantService(
 
     public async Task<RestaurantDto> UpdateAsync(Guid id, UpdateRestaurantRequest request, CancellationToken ct = default)
     {
-        await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+        var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
 
         var restaurant = await LoadOwnedAsync(id, ct);
 
@@ -125,6 +131,10 @@ public sealed class RestaurantService(
         await GetActiveTenantIdAsync(
             deactivate ? Permissions.RestaurantDeactivate : Permissions.RestaurantUpdate, ct);
 
+        var tenantId = tenantContext.GetRequiredTenantId();
+
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
+
         var restaurant = await LoadOwnedAsync(id, ct);
 
         if (!Enum.TryParse<RestaurantStatus>(status, ignoreCase: false, out var newStatus))
@@ -138,7 +148,9 @@ public sealed class RestaurantService(
 
     public async Task SoftDeleteAsync(Guid id, CancellationToken ct = default)
     {
-        await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+        var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
 
         var restaurant = await LoadOwnedAsync(id, ct);
 
@@ -152,6 +164,10 @@ public sealed class RestaurantService(
     /// Resolves + validates the acting tenant: context present, membership ACTIVE,
     /// role grants the required permission, and tenant operational. Every check is
     /// server-side; nothing trusts the client.
+    ///
+    /// Reads stay available for a workspace whose subscription has lapsed, so the
+    /// owner can still see what exists and reach the upgrade experience. The
+    /// subscription check therefore lives on the mutating operations only.
     /// </summary>
     private async Task<Guid> GetActiveTenantIdAsync(string requiredPermission, CancellationToken ct)
     {
@@ -176,7 +192,7 @@ public sealed class RestaurantService(
             .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
         if (!tenantOperational)
             throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
-        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct); 
+
         return tenantId;
     }
 

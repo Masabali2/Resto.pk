@@ -67,6 +67,17 @@ public sealed class SubscriptionConfiguration
             .HasDatabaseName(
                 "IX_Subscriptions_SubscriptionPlanId");
 
+        // A workspace may hold at most ONE live subscription (trial, active or
+        // past due) at a time. The filtered unique index makes that a database
+        // guarantee, so two concurrent trial activations can never both
+        // succeed. Historical rows (cancelled/expired) are unaffected and stay
+        // part of the subscription history.
+        builder.HasIndex(s => s.TenantId)
+            .IsUnique()
+            .HasFilter("[Status] IN (1, 2, 3)")
+            .HasDatabaseName(
+                "UX_Subscriptions_TenantId_Live");
+
         builder.HasOne(s => s.Tenant)
             .WithMany(t => t.Subscriptions)
             .HasForeignKey(s => s.TenantId)

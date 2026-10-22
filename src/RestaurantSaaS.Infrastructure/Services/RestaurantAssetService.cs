@@ -71,6 +71,11 @@ public sealed class RestaurantAssetService(
         CancellationToken ct = default)
     {
         var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+
+        // Uploading assets changes the workspace's restaurant branding, so it
+        // is subscription protected like the other restaurant mutations.
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
+
         await EnsureRestaurantOwnershipAsync(restaurantId, ct);
 
         if (!AssetTypeNames.TryGetValue(assetType ?? string.Empty, out var type) ||
@@ -145,7 +150,10 @@ public sealed class RestaurantAssetService(
 
     public async Task DeleteAsync(Guid restaurantId, Guid assetId, CancellationToken ct = default)
     {
-        await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+        var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
+
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
+
         await EnsureRestaurantOwnershipAsync(restaurantId, ct);
 
         var asset = await db.RestaurantAssets
@@ -271,7 +279,7 @@ public sealed class RestaurantAssetService(
             .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
         if (!tenantOperational)
             throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
-        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
+
         return tenantId;
     }
 

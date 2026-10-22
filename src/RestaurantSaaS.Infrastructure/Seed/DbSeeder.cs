@@ -3,7 +3,11 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
+using RestaurantSaaS.Application.Features.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Identity;
+using RestaurantSaaS.Domain.Entities.Subscriptions;
+using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.ValueObjects;
 using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Seed;
@@ -38,6 +42,8 @@ public static class DbSeeder
         passwordHasher ??= new PasswordHasher<User>();
 
         await SeedRolesAsync(db);
+
+        await SeedSubscriptionPlansAsync(db);
 
         var admin = await EnsurePlatformAdminUserAsync(
             db,
@@ -92,6 +98,40 @@ public static class DbSeeder
                 Description = roleDefinition.Description
             });
         }
+
+        await db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Seeds the subscription plan that backs the 30-day free trial.
+    ///
+    /// Only the free trial plan is seeded. It carries a price of 0 (it is
+    /// free by definition), and no paid plan is invented here — the paid
+    /// catalogue is created by platform administrators through the existing
+    /// plan endpoints, so the product never shows a price that was not
+    /// deliberately configured.
+    /// </summary>
+    private static async Task SeedSubscriptionPlansAsync(
+        ApplicationDbContext db)
+    {
+        var existing = await db.SubscriptionPlans
+            .IgnoreQueryFilters()
+            .FirstOrDefaultAsync(
+                plan => plan.Name == SubscriptionTrialPolicy.TrialPlanName);
+
+        if (existing is not null)
+        {
+            return;
+        }
+
+        db.SubscriptionPlans.Add(SubscriptionPlan.Create(
+            SubscriptionTrialPolicy.TrialPlanName,
+            Money.Zero(),
+            BillingInterval.Monthly,
+            maxStaff: 5,
+            maxMenuItems: 100,
+            maxOrdersPerMonth: 500,
+            description: "30-day free trial for a new Resto.pk workspace."));
 
         await db.SaveChangesAsync();
     }

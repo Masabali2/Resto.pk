@@ -157,4 +157,16 @@ public class Subscription : AuditableEntity, ITenantOwned
             && StartDate <= utcNow
             && (EndDate is null || EndDate > utcNow);
     }
+
+    /// <summary>
+    /// True when this subscription is the workspace free trial.
+    /// </summary>
+    public bool IsTrial => Status == SubscriptionStatus.Trial;
+
+    /// <summary>
+    /// True when the covered period has elapsed. A lapsed trial keeps its row
+    /// (it stays part of the subscription history) but no longer grants access.
+    /// </summary>
+    public bool HasEnded(DateTime utcNow) =>
+        EndDate.HasValue && EndDate.Value <= utcNow;
 }

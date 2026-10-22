@@ -2,11 +2,14 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Moq;
 using RestaurantSaaS.Application.Common.Interfaces;
+using RestaurantSaaS.Application.Features.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Domain.Entities.Restaurants;
+using RestaurantSaaS.Domain.Entities.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Tenants;
 using RestaurantSaaS.Domain.Entities.Websites;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.ValueObjects;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
 using RestaurantSaaS.Infrastructure.Tenancy;
@@ -18,7 +21,9 @@ internal sealed record Fixture(
     TenantContext TenantContext,
     Mock<ICurrentUserService> CurrentUser,
     StubMembershipService Memberships,
-    RestaurantService Restaurants)
+    RestaurantService Restaurants,
+    TenantAccessGuard AccessGuard,
+    TenantSubscriptionService Subscriptions)
 {
     public void Unauthenticated() =>
         CurrentUser.Setup(x => x.IsAuthenticated).Returns(false);
@@ -54,10 +59,13 @@ internal static class TestFactory
     public static readonly Guid ManagerRoleId = Guid.NewGuid();
     public static readonly Guid KitchenRoleId = Guid.NewGuid();
 
-    public static Fixture Create(Guid? resolvedTenantId = null)
+    public static Fixture Create(
+        Guid? resolvedTenantId = null,
+        string? databaseName = null,
+        TenantSubscriptionGate? gate = null)
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
-            .UseInMemoryDatabase($"resto-{Guid.NewGuid()}")
+            .UseInMemoryDatabase(databaseName ?? $"resto-{Guid.NewGuid()}")
             .ConfigureWarnings(w => w.Ignore(
                 Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
             .Options;
@@ -88,13 +96,64 @@ internal static class TestFactory
             memberships,
             accessGuard);
 
+        var subscriptionGate = gate ?? new TenantSubscriptionGate();
+
+        var subscriptions = new TenantSubscriptionService(
+            db,
+            accessGuard,
+            subscriptionGate);
+
         return new Fixture(
             db,
             tenantContext,
             currentUser,
             memberships,
-            service);
+            service,
+            accessGuard,
+            subscriptions);
 
+    }
+
+    /// <summary>
+    /// Registers the subscription plan that backs the free trial, exactly as
+    /// the database seeder provisions it.
+    /// </summary>
+    public static async Task<SubscriptionPlan> AddTrialPlanAsync(Fixture fx)
+    {
+        var plan = SubscriptionPlan.Create(
+            SubscriptionTrialPolicy.TrialPlanName,
+            Money.Zero(),
+            BillingInterval.Monthly,
+            maxStaff: 5,
+            maxMenuItems: 100,
+            maxOrdersPerMonth: 500,
+            description: "30-day free trial for a new Resto.pk workspace.");
+
+        fx.Db.SubscriptionPlans.Add(plan);
+        await fx.Db.SaveChangesAsync();
+
+        return plan;
+    }
+
+    /// <summary>
+    /// Registers a membership in the stub membership service without touching
+    /// the database. Used to model a second request acting on the same
+    /// workspace.
+    /// </summary>
+    public static void AttachMembership(Fixture fx, Tenant tenant, string roleName = "Owner")
+    {
+        var membershipId = Guid.NewGuid();
+
+        fx.Memberships.Memberships.Add(new TenantMembershipInfo(
+            membershipId,
+            tenant.Id,
+            tenant.Name,
+            tenant.Slug,
+            OwnerRoleId,
+            roleName,
+            (int)MembershipStatus.Active));
+
+        fx.Memberships.AddMembership(membershipId, UserId);
     }
 
     public static async Task SeedRolesAsync(ApplicationDbContext db)

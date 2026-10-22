@@ -1,6 +1,7 @@
 ﻿
 using FluentAssertions;
 using RestaurantSaaS.Application.Common.Authorization;
+using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Domain.Entities.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Tenants;
 using RestaurantSaaS.Domain.Enums;
@@ -9,6 +10,9 @@ using RestaurantSaaS.Infrastructure.Services;
 
 namespace RestaurantSaaS.Infrastructure.Tests;
 
+/// <summary>
+/// Guards the subscription/entitlement boundary of a tenant-scoped service.
+/// </summary>
 public sealed class TenantSubscriptionEntitlementTests
 {
     [Fact]
@@ -29,9 +33,7 @@ public sealed class TenantSubscriptionEntitlementTests
 
         await fx.Db.SaveChangesAsync();
 
-        var guard = CreateGuard(fx);
-
-        var result = await guard.EnsurePermissionAsync(
+        var result = await fx.AccessGuard.EnsurePermissionAsync(
             Permissions.RestaurantView,
             CancellationToken.None);
 
@@ -39,7 +41,7 @@ public sealed class TenantSubscriptionEntitlementTests
     }
 
     [Fact]
-    public async Task EnsurePermissionAsync_ShouldRejectTenantWithExpiredTrial()
+    public async Task EnsurePermissionAsync_ShouldKeepReadsAvailableAfterTrialExpiry()
     {
         var fx = TestFactory.Create();
         var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
@@ -56,18 +58,45 @@ public sealed class TenantSubscriptionEntitlementTests
 
         await fx.Db.SaveChangesAsync();
 
-        var guard = CreateGuard(fx);
-
-        var act = () => guard.EnsurePermissionAsync(
+        // An expired trial must not blanket-disable the workspace: reads and
+        // subscription management stay available so the owner can reach the
+        // upgrade experience.
+        var result = await fx.AccessGuard.EnsurePermissionAsync(
             Permissions.RestaurantView,
             CancellationToken.None);
 
-        await act.Should()
-            .ThrowAsync<DomainException>();
+        result.Should().Be(tenant.Id);
     }
 
     [Fact]
-    public async Task EnsurePermissionAsync_ShouldRejectTenantWithoutSubscription()
+    public async Task EnsureSubscriptionEntitledAsync_ShouldRejectTenantWithExpiredTrial()
+    {
+        var fx = TestFactory.Create();
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
+            fx, "Expired Trial Tenant", $"expired-{Guid.NewGuid():N}");
+
+        fx.TenantContext.SetTenant(tenant.Id);
+
+        var now = DateTime.UtcNow;
+        fx.Db.Subscriptions.Add(Subscription.StartTrial(
+            tenant.Id,
+            Guid.NewGuid(),
+            now.AddDays(-31),
+            now.AddDays(-1)));
+
+        await fx.Db.SaveChangesAsync();
+
+        var act = () => fx.AccessGuard.EnsureSubscriptionEntitledAsync(
+            tenant.Id,
+            CancellationToken.None);
+
+        var exception = await act.Should().ThrowAsync<DomainException>();
+
+        exception.Which.Code.Should().Be("SUBSCRIPTION_NOT_ENTITLED");
+    }
+
+    [Fact]
+    public async Task EnsureSubscriptionEntitledAsync_ShouldRejectTenantWithoutSubscription()
     {
         var fx = TestFactory.Create();
         var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
@@ -75,14 +104,37 @@ public sealed class TenantSubscriptionEntitlementTests
 
         fx.TenantContext.SetTenant(tenant.Id);
 
-        var guard = CreateGuard(fx);
-
-        var act = () => guard.EnsurePermissionAsync(
-            Permissions.RestaurantView,
+        var act = () => fx.AccessGuard.EnsureSubscriptionEntitledAsync(
+            tenant.Id,
             CancellationToken.None);
 
-        await act.Should()
-            .ThrowAsync<DomainException>();
+        var exception = await act.Should().ThrowAsync<DomainException>();
+
+        exception.Which.Code.Should().Be("SUBSCRIPTION_REQUIRED");
+    }
+
+    [Fact]
+    public async Task EnsureSubscriptionEntitledAsync_ShouldRejectAnotherWorkspace()
+    {
+        var fx = TestFactory.Create();
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
+            fx, "Owner Tenant", $"owner-{Guid.NewGuid():N}");
+
+        var otherTenant = Tenant.Create(
+            "Other Tenant",
+            $"other-{Guid.NewGuid():N}");
+        otherTenant.ChangeStatus(TenantStatus.Active);
+
+        fx.Db.Tenants.Add(otherTenant);
+        await fx.Db.SaveChangesAsync();
+
+        fx.TenantContext.SetTenant(tenant.Id);
+
+        var act = () => fx.AccessGuard.EnsureSubscriptionEntitledAsync(
+            otherTenant.Id,
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<CrossTenantAccessException>();
     }
 
     [Fact]
@@ -103,9 +155,7 @@ public sealed class TenantSubscriptionEntitlementTests
 
         fx.TenantContext.SetTenant(tenantB.Id);
 
-        var guard = CreateGuard(fx);
-
-        var act = () => guard.EnsurePermissionAsync(
+        var act = () => fx.AccessGuard.EnsurePermissionAsync(
             Permissions.RestaurantView,
             CancellationToken.None);
 
@@ -116,7 +166,7 @@ public sealed class TenantSubscriptionEntitlementTests
     }
 
     [Fact]
-    public async Task EnsurePermissionAsync_ShouldAllowSubscriptionManagementAfterTrialExpiry()
+    public async Task EnsureTenantMemberAsync_ShouldAllowSubscriptionManagementAfterTrialExpiry()
     {
         var fx = TestFactory.Create();
         var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
@@ -133,20 +183,27 @@ public sealed class TenantSubscriptionEntitlementTests
 
         await fx.Db.SaveChangesAsync();
 
-        var guard = CreateGuard(fx);
-
-        var result = await guard.EnsurePermissionAsync(
+        var result = await fx.AccessGuard.EnsureTenantMemberAsync(
             Permissions.TenantView,
-            CancellationToken.None,
-            requireEntitlement: false);
+            CancellationToken.None);
 
         result.Should().Be(tenant.Id);
     }
 
-    private static TenantAccessGuard CreateGuard(Fixture fx) =>
-        new(
-            fx.Db,
-            fx.TenantContext,
-            fx.CurrentUser.Object,
-            fx.Memberships);
+    [Fact]
+    public async Task EnsureTenantMemberAsync_ShouldAllowPendingWorkspaceToManageItsSubscription()
+    {
+        var fx = TestFactory.Create();
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(
+            fx, "Pending Tenant", $"pending-{Guid.NewGuid():N}",
+            TenantStatus.Pending);
+
+        fx.TenantContext.SetTenant(tenant.Id);
+
+        var result = await fx.AccessGuard.EnsureTenantMemberAsync(
+            Permissions.TenantView,
+            CancellationToken.None);
+
+        result.Should().Be(tenant.Id);
+    }
 }

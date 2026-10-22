@@ -57,12 +57,34 @@ public sealed record TenantSubscriptionSummaryDto(
     int MaxMenuItems,
     int MaxOrdersPerMonth);
 
+/// <summary>
+/// Whether the active workspace may still consume its free trial.
+///
+/// <see cref="TrialUsed"/> stays true forever once a subscription row exists
+/// for the workspace, so a consumed trial can never be replayed.
+/// </summary>
+public sealed record TrialEligibilityDto(
+    bool Eligible,
+    bool TrialUsed,
+    int TrialDurationDays,
+    string? Reason);
+
+/// <summary>
+/// Complete subscription state of the active workspace.
+///
+/// This is the single authority the client uses: it carries the workspace
+/// status, the current subscription, the trial eligibility and the plans that
+/// are actually available, so the UI never has to guess.
+/// </summary>
 public sealed record CurrentSubscriptionStateDto(
+    Guid TenantId,
+    string TenantName,
+    string TenantStatus,
     bool HasSubscription,
     TenantSubscriptionSummaryDto? Subscription,
-    PagedResult<SubscriptionPlanDto>? AvailablePlans);
-
-public sealed record StartTenantSubscriptionRequest(Guid PlanId);
+    TrialEligibilityDto Trial,
+    IReadOnlyList<SubscriptionPlanDto> AvailablePlans,
+    DateTime ServerTimeUtc);
 
 public sealed record ChangeTenantSubscriptionPlanRequest(Guid NewPlanId);
 

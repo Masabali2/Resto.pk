@@ -33,14 +33,6 @@ public sealed class UpdateSubscriptionPlanLimitsRequestValidator : AbstractValid
     }
 }
 
-public sealed class StartTenantSubscriptionRequestValidator : AbstractValidator<StartTenantSubscriptionRequest>
-{
-    public StartTenantSubscriptionRequestValidator()
-    {
-        RuleFor(x => x.PlanId).NotEqual(Guid.Empty);
-    }
-}
-
 public sealed class ChangeTenantSubscriptionPlanRequestValidator : AbstractValidator<ChangeTenantSubscriptionPlanRequest>
 {
     public ChangeTenantSubscriptionPlanRequestValidator()

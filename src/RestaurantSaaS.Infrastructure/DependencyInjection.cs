@@ -13,6 +13,7 @@ using RestaurantSaaS.Infrastructure.Services;
 using RestaurantSaaS.Infrastructure.Tenancy;
 using RestaurantSaaS.Application.Features.Staff;
 using RestaurantSaaS.Application.Common.Entitlements;
+using RestaurantSaaS.Application.Features.Subscriptions;
 namespace RestaurantSaaS.Infrastructure;
 
 public static class DependencyInjection
@@ -84,6 +85,9 @@ public static class DependencyInjection
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();
+        services.AddSingleton<TenantSubscriptionGate>();
+        services.AddScoped<ITenantSubscriptionService, TenantSubscriptionService>();
+        services.AddScoped<ISubscriptionPlanService, SubscriptionPlanService>();
         services.AddScoped<IRestaurantService, RestaurantService>();
         services.AddScoped<IRestaurantAssetService, RestaurantAssetService>();
         services.AddScoped<IWebsiteTemplateService, WebsiteTemplateService>();
