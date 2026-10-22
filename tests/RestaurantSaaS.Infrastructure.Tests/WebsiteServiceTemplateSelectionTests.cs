@@ -12,6 +12,19 @@ public sealed class WebsiteServiceTemplateSelectionTests
 {
     private const string ValidDraftJson = """{"schemaVersion":1,"sections":[{"type":"hero","title":"Welcome"}]}""";
 
+    private const string ValidDesignConfiguration = """
+    {"schemaVersion":1,"category":"Fine dining","tags":["premium"],"featured":true,"displayOrder":2,
+    "design":{"palette":{"background":"#F7F2EA","surface":"#FFFFFF","text":"#1C1B1A","mutedText":"#6B6560",
+    "primary":"#2E2A27","accent":"#B0672A","border":"#E3D9CB"},
+    "typography":{"headingFont":"serif-editorial","bodyFont":"sans-modern"},
+    "layout":{"header":"centered","hero":"cinematic","menu":"editorial-list","gallery":"strip",
+    "footer":"simple","buttons":"outline","corners":"sharp"},
+    "sections":[{"type":"hero","enabled":true,"order":1}]},
+    "previewContent":{"eyebrow":"An evening","heroTitle":"Ember, Oak & Patience",
+    "heroDescription":"Seasonal plates over live fire.","primaryActionLabel":"Reserve a Table",
+    "sampleDishes":[{"name":"Dry-Aged Ribeye","price":"PKR 5,400"}]}}
+    """;
+
     [Fact]
     public async Task ListAvailableTemplatesAsync_ReturnsOnlyActiveTemplates()
     {
@@ -22,6 +35,34 @@ public sealed class WebsiteServiceTemplateSelectionTests
         var result = await service.ListAvailableTemplatesAsync();
 
         result.Should().ContainSingle(t => t.TemplateKey == "classic");
+    }
+
+    [Fact]
+    public async Task ListAvailableTemplatesAsync_ReturnsDesignConfiguration()
+    {
+        var (fx, service) = await CreateAuthorizedFixtureAsync();
+        TestFactory.AddTemplate(
+            fx, "Spice Garden", "spice-garden", designConfigurationJson: ValidDesignConfiguration);
+
+        var result = await service.ListAvailableTemplatesAsync();
+
+        var template = result.Should().ContainSingle(t => t.TemplateKey == "spice-garden").Subject;
+        template.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+    }
+
+    [Fact]
+    public async Task ListAvailableTemplatesAsync_ReturnsConfiguredPreviewImageReference()
+    {
+        var (fx, service) = await CreateAuthorizedFixtureAsync();
+        var fileId = Guid.NewGuid();
+        var template = TestFactory.AddTemplate(fx, "Classic", "classic");
+        template.AssignPreviewImage(fileId);
+        await fx.Db.SaveChangesAsync();
+
+        var result = await service.ListAvailableTemplatesAsync();
+
+        result.Should().ContainSingle(t => t.TemplateKey == "classic")
+            .Which.PreviewImageFileId.Should().Be(fileId);
     }
 
     [Fact]

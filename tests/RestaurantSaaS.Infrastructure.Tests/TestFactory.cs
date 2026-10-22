@@ -229,10 +229,12 @@ internal static class TestFactory
     }
 
     public static WebsiteTemplate AddTemplate(
-        Fixture fx, string name, string key, bool active = true)
+        Fixture fx, string name, string key, bool active = true, string? designConfigurationJson = null)
     {
         var template = WebsiteTemplate.Create(name, key, $"{name} description");
         if (!active) template.SetActive(false);
+        if (designConfigurationJson is not null)
+            template.SetDesignConfiguration(designConfigurationJson);
         fx.Db.WebsiteTemplates.Add(template);
         fx.Db.SaveChanges();
         return template;

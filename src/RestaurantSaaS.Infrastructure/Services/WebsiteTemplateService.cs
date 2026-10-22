@@ -4,6 +4,7 @@ using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Features.Websites.DTOs;
 using RestaurantSaaS.Domain.Entities.Websites;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Services;
@@ -45,8 +46,16 @@ public sealed class WebsiteTemplateService(ApplicationDbContext db) : IWebsiteTe
             !await db.Files.AnyAsync(f => f.Id == fileId && f.DeletedAt == null, ct))
             throw new NotFoundException("File", fileId);
 
+        // A catalogue template is rendered by the generic template renderer,
+        // so it is always created with a default design configuration.
+        var designConfiguration = request.DesignConfigurationJson
+            ?? throw new DomainException(
+                "TEMPLATE_DESIGN_CONFIGURATION_REQUIRED",
+                "A default design configuration is required to create a template.");
+
         var template = WebsiteTemplate.Create(request.Name, key, request.Description);
         template.AssignPreviewImage(request.PreviewImageFileId);
+        template.SetDesignConfiguration(designConfiguration);
 
         db.WebsiteTemplates.Add(template);
         await db.SaveChangesAsync(ct);
@@ -60,11 +69,23 @@ public sealed class WebsiteTemplateService(ApplicationDbContext db) : IWebsiteTe
             ?? throw new NotFoundException("WebsiteTemplate", id);
 
         template.Update(request.Name, request.Description, request.IsActive);
+
+        if (request.DesignConfigurationJson is not null)
+            template.SetDesignConfiguration(request.DesignConfigurationJson);
+
         await db.SaveChangesAsync(ct);
 
         return ToDto(template);
     }
 
     private static WebsiteTemplateDto ToDto(WebsiteTemplate t) =>
-        new(t.Id, t.Name, t.Description, t.TemplateKey, t.PreviewImageFileId, t.IsActive, t.CreatedAt);
+        new(
+            t.Id,
+            t.Name,
+            t.Description,
+            t.TemplateKey,
+            t.PreviewImageFileId,
+            t.IsActive,
+            t.CreatedAt,
+            t.DesignConfigurationJson);
 }

@@ -11,11 +11,21 @@ public sealed record WebsiteTemplateDto(
     string TemplateKey,
     Guid? PreviewImageFileId,
     bool IsActive,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? DesignConfigurationJson);
 
-public sealed record CreateWebsiteTemplateRequest(string Name, string TemplateKey, string? Description, Guid? PreviewImageFileId);
+public sealed record CreateWebsiteTemplateRequest(
+    string Name,
+    string TemplateKey,
+    string? Description,
+    Guid? PreviewImageFileId,
+    string? DesignConfigurationJson = null);
 
-public sealed record UpdateWebsiteTemplateRequest(string? Name, string? Description, bool? IsActive);
+public sealed record UpdateWebsiteTemplateRequest(
+    string? Name,
+    string? Description,
+    bool? IsActive,
+    string? DesignConfigurationJson = null);
 
 // ===================== Websites (tenant-owned) =====================
 
