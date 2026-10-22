@@ -16,7 +16,8 @@ public sealed class RestaurantAssetService(
     ITenantContext tenantContext,
     ICurrentUserService currentUser,
     ITenantMembershipService membershipService,
-    IFileStorageService storage) : IRestaurantAssetService
+    IFileStorageService storage,
+    TenantAccessGuard accessGuard) : IRestaurantAssetService
 {
     private static readonly Dictionary<string, AssetType> AssetTypeNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -270,7 +271,7 @@ public sealed class RestaurantAssetService(
             .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
         if (!tenantOperational)
             throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
-
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct);
         return tenantId;
     }
 

@@ -129,11 +129,6 @@ public static class WebsiteConfigSchema
         value.Length is 4 or 7 && value[0] == '#' &&
         value.Skip(1).All(Uri.IsHexDigit);
 
-    /// <summary>
-    /// Recursively rejects deep/oversized documents and scans every string for
-    /// injection vectors. Strings are accepted only as plain text; anything that
-    /// looks like markup, script URLs or event handlers fails closed.
-    /// </summary>
     private static string? ScanForUnsafe(JsonElement el, string path, int depth, int[] keyCount)
     {
         if (depth > MaxDepth) return $"Configuration nesting too deep at {path}.";

@@ -18,7 +18,7 @@ public sealed class TenantSubscriptionService(
 {
     public async Task<CurrentSubscriptionStateDto> GetMyStateAsync(CancellationToken ct = default)
     {
-        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.TenantView, ct);
+        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.TenantView, ct , requireEntitlement: false);
 
         var current = await LoadCurrentSummaryAsync(tenantId, ct);
 
@@ -67,68 +67,116 @@ public sealed class TenantSubscriptionService(
         return history.Select(ToDto).ToList();
     }
 
-    public async Task<SubscriptionDto> StartAsync(StartTenantSubscriptionRequest request, CancellationToken ct = default)
+    public async Task<SubscriptionDto> StartAsync(
+    StartTenantSubscriptionRequest request,
+    CancellationToken ct = default)
     {
-        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.TenantUpdate, ct);
+        var tenantId = await accessGuard.EnsureTrialOnboardingAccessAsync(ct);
 
-        var plan = await db.SubscriptionPlans.AsNoTracking().FirstOrDefaultAsync(p => p.Id == request.PlanId, ct)
-                   ?? throw new NotFoundException("SubscriptionPlan", request.PlanId);
+        var plan = await db.SubscriptionPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == request.PlanId, ct)
+            ?? throw new NotFoundException("SubscriptionPlan", request.PlanId);
 
         if (!plan.IsActive)
-            throw new DomainException("SUBSCRIPTION_PLAN_UNAVAILABLE", "This plan is not available for selection.");
+        {
+            throw new DomainException(
+                "SUBSCRIPTION_PLAN_UNAVAILABLE",
+                "This plan is not available for selection.");
+        }
 
-        var existing = await db.Subscriptions
-            .AnyAsync(s => s.TenantId == tenantId &&
-                            (s.Status == SubscriptionStatus.Trial ||
-                             s.Status == SubscriptionStatus.Active ||
-                             s.Status == SubscriptionStatus.PastDue), ct);
+        var hasExistingSubscription = await db.Subscriptions
+            .AnyAsync(
+                s => s.TenantId == tenantId &&
+                     (s.Status == SubscriptionStatus.Trial ||
+                      s.Status == SubscriptionStatus.Active ||
+                      s.Status == SubscriptionStatus.PastDue),
+                ct);
 
-        if (existing)
-            throw new ConflictException("This tenant already has a subscription. Change the plan instead of starting a new one.");
+        if (hasExistingSubscription)
+        {
+            throw new ConflictException(
+                "This tenant already has an active or trial subscription.");
+        }
+
+        var tenant = await db.Tenants
+            .FirstOrDefaultAsync(
+                t => t.Id == tenantId &&
+                     t.Status == TenantStatus.Pending &&
+                     !t.IsDeleted,
+                ct)
+            ?? throw new DomainException(
+                "TENANT_NOT_ELIGIBLE_FOR_TRIAL",
+                "Only a pending tenant can start its initial trial.");
 
         var now = DateTime.UtcNow;
-        var endDate = ComputeEndDate(now, plan.BillingInterval);
+        var endDate = now.AddDays(30);
 
-        var subscription = Subscription.Start(tenantId, plan.Id, now, endDate, autoRenew: true);
+        var subscription = Subscription.StartTrial(
+            tenantId,
+            plan.Id,
+            now,
+            endDate);
+
+        await using var transaction =
+            await db.Database.BeginTransactionAsync(ct);
 
         db.Subscriptions.Add(subscription);
-        await db.SaveChangesAsync(ct);
+        tenant.ChangeStatus(TenantStatus.Active);
 
-        return ToDto(subscription);
+        await db.SaveChangesAsync(ct);
+        await transaction.CommitAsync(ct);
+
+        var savedSubscription = await db.Subscriptions
+            .Include(s => s.Plan)
+            .FirstAsync(s => s.Id == subscription.Id, ct);
+
+        return ToDto(savedSubscription);
     }
 
-    public async Task<SubscriptionDto> ChangePlanAsync(Guid subscriptionId, ChangeTenantSubscriptionPlanRequest request, CancellationToken ct = default)
+    public async Task<SubscriptionDto> ChangePlanAsync(
+     Guid subscriptionId,
+     ChangeTenantSubscriptionPlanRequest request,
+     CancellationToken ct = default)
     {
-        var subscription = await LoadOwnedAsync(subscriptionId, Permissions.TenantUpdate, ct);
+        var subscription = await LoadOwnedAsync(
+            subscriptionId,
+            Permissions.TenantUpdate,
+            ct);
 
-        if (subscription.Status is SubscriptionStatus.Cancelled or SubscriptionStatus.Expired)
-            throw new DomainException("SUBSCRIPTION_ALREADY_ENDED", "An ended subscription cannot change plans.");
+        if (subscription.Status is SubscriptionStatus.Cancelled
+            or SubscriptionStatus.Expired)
+        {
+            throw new DomainException(
+                "SUBSCRIPTION_ALREADY_ENDED",
+                "An ended subscription cannot change plans.");
+        }
 
-        var newPlan = await db.SubscriptionPlans.AsNoTracking().FirstOrDefaultAsync(p => p.Id == request.NewPlanId, ct)
-                      ?? throw new NotFoundException("SubscriptionPlan", request.NewPlanId);
+        var newPlan = await db.SubscriptionPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == request.NewPlanId, ct)
+            ?? throw new NotFoundException(
+                "SubscriptionPlan",
+                request.NewPlanId);
 
         if (!newPlan.IsActive)
-            throw new DomainException("SUBSCRIPTION_PLAN_UNAVAILABLE", "This plan is not available for selection.");
+        {
+            throw new DomainException(
+                "SUBSCRIPTION_PLAN_UNAVAILABLE",
+                "This plan is not available for selection.");
+        }
 
         if (newPlan.Id == subscription.SubscriptionPlanId)
-            throw new DomainException("SUBSCRIPTION_PLAN_UNCHANGED", "The subscription is already on this plan.");
+        {
+            throw new DomainException(
+                "SUBSCRIPTION_PLAN_UNCHANGED",
+                "The subscription is already on this plan.");
+        }
 
-        subscription.Cancel(DateTime.UtcNow);
-
-        var now = DateTime.UtcNow;
-        var replacement = Subscription.Start(
-            subscription.TenantId,
-            newPlan.Id,
-            now,
-            ComputeEndDate(now, newPlan.BillingInterval),
-            autoRenew: true);
-
-        db.Subscriptions.Add(replacement);
-        await db.SaveChangesAsync(ct);
-
-        return ToDto(replacement);
+        throw new DomainException(
+            "SUBSCRIPTION_PAYMENT_REQUIRED",
+            "Changing plans requires a supported payment flow. Plan changes are temporarily unavailable.");
     }
-
     public async Task<SubscriptionDto> CancelAsync(Guid subscriptionId, CancellationToken ct = default)
     {
         var subscription = await LoadOwnedAsync(subscriptionId, Permissions.TenantUpdate, ct);
@@ -186,7 +234,7 @@ public sealed class TenantSubscriptionService(
 
     private async Task RequireTenantAdminAsync(Guid targetTenantId, string permission, CancellationToken ct)
     {
-        var actorTenantId = await accessGuard.EnsurePermissionAsync(permission, ct);
+        var actorTenantId = await accessGuard.EnsurePermissionAsync(permission, ct , requireEntitlement: false);
 
         if (targetTenantId != actorTenantId)
             throw new CrossTenantAccessException();
@@ -194,7 +242,7 @@ public sealed class TenantSubscriptionService(
 
     private async Task<Subscription> LoadOwnedAsync(Guid id, string permission, CancellationToken ct)
     {
-        var tenantId = await accessGuard.EnsurePermissionAsync(permission, ct);
+        var tenantId = await accessGuard.EnsurePermissionAsync(permission, ct, requireEntitlement: false);
         return await LoadOwnedAsync(id, tenantId, ct);
     }
 

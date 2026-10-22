@@ -19,7 +19,8 @@ public sealed class RestaurantService(
     ApplicationDbContext db,
     ITenantContext tenantContext,
     ICurrentUserService currentUser,
-    ITenantMembershipService membershipService) : IRestaurantService
+    ITenantMembershipService membershipService,
+    TenantAccessGuard accessGuard) : IRestaurantService
 {
     public async Task<RestaurantDto> CreateAsync(CreateRestaurantRequest request, CancellationToken ct = default)
     {
@@ -175,7 +176,7 @@ public sealed class RestaurantService(
             .AnyAsync(t => t.Id == tenantId && t.Status == TenantStatus.Active && !t.IsDeleted, ct);
         if (!tenantOperational)
             throw new DomainException("TENANT_NOT_ACTIVE", "This tenant is not active.");
-
+        await accessGuard.EnsureSubscriptionEntitledAsync(tenantId, ct); 
         return tenantId;
     }
 

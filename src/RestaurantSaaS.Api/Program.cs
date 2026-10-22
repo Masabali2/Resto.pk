@@ -24,6 +24,18 @@ builder.Host.UseSerilog((ctx, cfg) =>
         .Enrich.FromLogContext()
         .WriteTo.Console());
 
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("Frontend", policy =>
+    {
+        policy
+            .WithOrigins("https://localhost:4200")
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials();
+    });
+});
+
 builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<
@@ -103,6 +115,23 @@ builder.Services
 
                 ClockSkew = TimeSpan.FromSeconds(30)
             };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnMessageReceived = context =>
+            {
+                if (string.IsNullOrEmpty(context.Token) &&
+                    context.Request.Cookies.TryGetValue(
+                        "resto_access_token",
+                        out var accessToken))
+                {
+                    context.Token = accessToken;
+                }
+
+                return Task.CompletedTask;
+            }
+        };
+
     });
 
 builder.Services.AddScoped<FluentValidationActionFilter>();
@@ -138,6 +167,7 @@ if (app.Environment.IsDevelopment())
 app.UseMiddleware<HandleExceptionMiddleware>();
 
 app.UseHttpsRedirection();
+app.UseCors("Frontend");
 
 app.UseAuthentication();
 

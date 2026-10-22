@@ -73,16 +73,28 @@ internal static class TestFactory
         var currentUser = new Mock<ICurrentUserService>();
         currentUser.Setup(x => x.IsAuthenticated).Returns(true);
         currentUser.Setup(x => x.UserId).Returns(UserId);
-
         var memberships = new StubMembershipService();
 
-        var service = new RestaurantService(
+        var accessGuard = new TenantAccessGuard(
             db,
             tenantContext,
             currentUser.Object,
             memberships);
 
-        return new Fixture(db, tenantContext, currentUser, memberships, service);
+        var service = new RestaurantService(
+            db,
+            tenantContext,
+            currentUser.Object,
+            memberships,
+            accessGuard);
+
+        return new Fixture(
+            db,
+            tenantContext,
+            currentUser,
+            memberships,
+            service);
+
     }
 
     public static async Task SeedRolesAsync(ApplicationDbContext db)

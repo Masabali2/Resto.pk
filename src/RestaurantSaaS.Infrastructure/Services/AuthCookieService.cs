@@ -80,6 +80,7 @@ public sealed class AuthCookieService(
 
     private static CookieOptions CreateCookieOptions(DateTime expiresAtUtc)
     {
+        var maxAge = expiresAtUtc - DateTime.UtcNow;
         return new CookieOptions
         {
             HttpOnly = true,
@@ -87,7 +88,8 @@ public sealed class AuthCookieService(
             SameSite = SameSiteMode.None,
             Path = "/",
             Expires = new DateTimeOffset(
-                DateTime.SpecifyKind(expiresAtUtc, DateTimeKind.Utc))
+                DateTime.SpecifyKind(expiresAtUtc, DateTimeKind.Utc)),
+            MaxAge = maxAge > TimeSpan.Zero ? maxAge : TimeSpan.Zero
         };
     }
 

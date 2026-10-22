@@ -31,6 +31,38 @@ public class Subscription : AuditableEntity, ITenantOwned
         DateTime? endDate,
         bool autoRenew = true)
     {
+        return Create(
+            tenantId,
+            subscriptionPlanId,
+            startDate,
+            endDate,
+            SubscriptionStatus.Active,
+            autoRenew);
+    }
+
+    public static Subscription StartTrial(
+        Guid tenantId,
+        Guid subscriptionPlanId,
+        DateTime startDate,
+        DateTime endDate)
+    {
+        return Create(
+            tenantId,
+            subscriptionPlanId,
+            startDate,
+            endDate,
+            SubscriptionStatus.Trial,
+            autoRenew: false);
+    }
+
+    private static Subscription Create(
+        Guid tenantId,
+        Guid subscriptionPlanId,
+        DateTime startDate,
+        DateTime? endDate,
+        SubscriptionStatus status,
+        bool autoRenew)
+    {
         if (tenantId == Guid.Empty)
             throw new DomainException(
                 "SUBSCRIPTION_TENANT_REQUIRED",
@@ -55,7 +87,7 @@ public class Subscription : AuditableEntity, ITenantOwned
             StartDate = startDate,
             EndDate = endDate,
             AutoRenew = autoRenew,
-            Status = SubscriptionStatus.Active,
+            Status = status,
             CreatedAt = now
         };
     }
