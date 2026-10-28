@@ -24,4 +24,10 @@
     <!-- Needed for IHttpContextAccessor (CurrentUserService). Standard pattern for Infrastructure layers hosting ASP.NET-facing implementations. -->
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Deterministic, development-generated inventories of every template's
+         images. Embedded so seeding never depends on the developer's frontend
+         checkout. The default logical name mirrors the folder structure. -->
+    <EmbeddedResource Include="Seed\Assets\*.assets.json" />
+  </ItemGroup>
 </Project>

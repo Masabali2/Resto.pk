@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "urban-slice",
+  "directory": "assets/images/Urban-Slice",
+  "assets": [
+    {
+      "fileName": "urban-slice1.png",
+      "alt": "A slice of pepperoni pizza lifted away with a stretch of melted cheese",
+      "width": 1120,
+      "height": 400,
+      "bytes": 131613,
+      "sha256": "ed2abdf952c785e80eeb7adfac17dc8c029f4659158b51828cadbd2b68210266"
+    },
+    {
+      "fileName": "urban-slice2.png",
+      "alt": "A crispy chicken burger with pickles and sauce on a sesame bun",
+      "width": 168,
+      "height": 180,
+      "bytes": 8590,
+      "sha256": "184480a9718b0003518a12c8ef5b3a5d5bd4bf1881607ca92668b51a461527da"
+    },
+    {
+      "fileName": "urban-slice3.png",
+      "alt": "A double chicken burger with cheese, lettuce and ketchup on a sesame bun",
+      "width": 168,
+      "height": 180,
+      "bytes": 11374,
+      "sha256": "e04bc1947d5f19fc0afad1cf86e1c1e3b557af0bea9ef9ad7524f288af9d087c"
+    },
+    {
+      "fileName": "urban-slice4.png",
+      "alt": "A pepperoni pizza covered in shredded mozzarella, fresh from the oven",
+      "width": 390,
+      "height": 270,
+      "bytes": 56604,
+      "sha256": "1b101191e4713d95ad3eae52569ff7b9c018d253d31021fadcebaa6cc09839ec"
+    },
+    {
+      "fileName": "urban-slice5.png",
+      "alt": "Two chicken wraps filled with grilled meat and salad on a white plate",
+      "width": 168,
+      "height": 180,
+      "bytes": 6189,
+      "sha256": "40cb5f97d9cebe869192b5bd6d5e8ea02eaa9053495de8fd793bdfa628e918fa"
+    },
+    {
+      "fileName": "urban-slice6.png",
+      "alt": "A chicken tikka pizza with coriander and red onion on a wooden board",
+      "width": 168,
+      "height": 180,
+      "bytes": 17307,
+      "sha256": "50e456dafacc76ebcdb1249e3f2da973f15ec54658a3f24fb8785a73143d85cc"
+    },
+    {
+      "fileName": "urban-slice7.png",
+      "alt": "A sliced chicken and red onion pizza on a wooden peel",
+      "width": 168,
+      "height": 180,
+      "bytes": 17339,
+      "sha256": "9e5122598b18ea58e1c6bf39f36a7a3feab25ed8ce783bd59d10df1be1336b0a"
+    },
+    {
+      "fileName": "urban-slice8.png",
+      "alt": "Crispy breaded chicken pieces, one halved to show the filling",
+      "width": 168,
+      "height": 180,
+      "bytes": 9077,
+      "sha256": "55385d512424dd65914b9efdfda046a60d6a7ef988eae1f0b03c8de690227c60"
+    }
+  ],
+  "placements": {
+    "hero": "urban-slice1.png",
+    "about": "urban-slice4.png",
+    "gallery": [
+      "urban-slice2.png",
+      "urban-slice3.png",
+      "urban-slice5.png",
+      "urban-slice6.png",
+      "urban-slice7.png",
+      "urban-slice8.png"
+    ]
+  }
+}

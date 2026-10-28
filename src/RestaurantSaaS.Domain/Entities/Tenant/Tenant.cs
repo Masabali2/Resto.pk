@@ -62,9 +62,14 @@ public class Tenant : AuditableEntity, ISoftDeletable
     {
         EnsureNotDeleted();
 
+        // Cancelled IS a valid target: the platform-admin contract (UpdateTenantStatusRequest,
+        // UpdateTenantStatusRequestValidator and TenantService.ChangeStatusForPlatformAsync)
+        // all accept it. Cancelled is TERMINAL — once reached, the guard below blocks any
+        // further transition.
         if (newStatus is not TenantStatus.Pending
             and not TenantStatus.Active
-            and not TenantStatus.Suspended)
+            and not TenantStatus.Suspended
+            and not TenantStatus.Cancelled)
         {
             throw new DomainException("TENANT_STATUS_INVALID", "The requested tenant status is invalid.");
         }

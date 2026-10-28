@@ -40,7 +40,15 @@ public sealed class WebsiteService(
             .ToListAsync(ct);
 
         return templates
-            .Select(t => new WebsiteTemplateDto(t.Id, t.Name, t.Description, t.TemplateKey, null, t.IsActive, t.CreatedAt))
+            .Select(t => new WebsiteTemplateDto(
+                t.Id,
+                t.Name,
+                t.Description,
+                t.TemplateKey,
+                t.PreviewImageFileId,
+                t.IsActive,
+                t.CreatedAt,
+                t.DesignConfigurationJson))
             .ToList();
     }
 

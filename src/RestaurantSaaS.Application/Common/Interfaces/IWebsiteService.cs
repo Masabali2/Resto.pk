@@ -15,6 +15,14 @@ public interface IWebsiteTemplateService
     Task<WebsiteTemplateDto> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<WebsiteTemplateDto> CreateAsync(CreateWebsiteTemplateRequest request, CancellationToken ct = default);
     Task<WebsiteTemplateDto> UpdateAsync(Guid id, UpdateWebsiteTemplateRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Anonymous read model of the ACTIVE template catalogue. Shares the
+    /// filtering and ordering of <see cref="ListAsync"/> but projects only
+    /// public fields. Templates are platform-owned, so no tenant context is
+    /// required or consulted.
+    /// </summary>
+    Task<IReadOnlyList<PublicWebsiteTemplateDto>> ListPublicAsync(CancellationToken ct = default);
 }
 
 /// <summary>

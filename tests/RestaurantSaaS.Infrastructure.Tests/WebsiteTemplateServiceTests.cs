@@ -3,12 +3,26 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Features.Websites.DTOs;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Persistence;
 
 namespace RestaurantSaaS.Infrastructure.Tests;
 
 public sealed class WebsiteTemplateServiceTests
 {
+    private const string ValidDesignConfiguration = """
+    {"schemaVersion":1,"category":"Fine dining","tags":["premium"],"featured":true,"displayOrder":2,
+    "design":{"palette":{"background":"#F7F2EA","surface":"#FFFFFF","text":"#1C1B1A","mutedText":"#6B6560",
+    "primary":"#2E2A27","accent":"#B0672A","border":"#E3D9CB"},
+    "typography":{"headingFont":"serif-editorial","bodyFont":"sans-modern"},
+    "layout":{"header":"centered","hero":"cinematic","menu":"editorial-list","gallery":"strip",
+    "footer":"simple","buttons":"outline","corners":"sharp"},
+    "sections":[{"type":"hero","enabled":true,"order":1}]},
+    "previewContent":{"eyebrow":"An evening","heroTitle":"Ember, Oak & Patience",
+    "heroDescription":"Seasonal plates over live fire.","primaryActionLabel":"Reserve a Table",
+    "sampleDishes":[{"name":"Dry-Aged Ribeye","price":"PKR 5,400"}]}}
+    """;
+
     [Fact]
     public async Task ListAsync_ExcludesInactiveTemplates_ByDefault()
     {
@@ -35,6 +49,53 @@ public sealed class WebsiteTemplateServiceTests
         var result = await service.ListAsync(includeInactive: true);
 
         result.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task ListPublicAsync_ExcludesInactiveTemplates()
+    {
+        var fx = TestFactory.Create();
+        TestFactory.AddTemplate(fx, "Classic", "classic");
+        TestFactory.AddTemplate(fx, "Retired", "retired", active: false);
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        result.Should().ContainSingle(t => t.TemplateKey == "classic");
+    }
+
+    [Fact]
+    public async Task ListPublicAsync_FollowsTheExistingNameOrdering()
+    {
+        var fx = TestFactory.Create();
+        TestFactory.AddTemplate(fx, "Zest", "zest");
+        TestFactory.AddTemplate(fx, "Aroma", "aroma");
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        result.Select(t => t.TemplateKey).Should().Equal("aroma", "zest");
+    }
+
+    [Fact]
+    public async Task ListPublicAsync_ReturnsTheDesignConfiguration()
+    {
+        var fx = TestFactory.Create();
+        var template = TestFactory.AddTemplate(
+            fx, "Spice Garden", "spice-garden", designConfigurationJson: ValidDesignConfiguration);
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        var dto = result.Should().ContainSingle().Subject;
+        dto.Id.Should().Be(template.Id);
+        dto.Name.Should().Be("Spice Garden");
+        dto.Description.Should().Be("Spice Garden description");
+        dto.TemplateKey.Should().Be("spice-garden");
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
     }
 
     [Fact]
@@ -69,11 +130,29 @@ public sealed class WebsiteTemplateServiceTests
         var service = TestFactory.CreateTemplateService(fx);
 
         var dto = await service.CreateAsync(
-            new CreateWebsiteTemplateRequest("Modern", "MODERN-Dine", "desc", null));
+            new CreateWebsiteTemplateRequest(
+                "Modern", "MODERN-Dine", "desc", null, ValidDesignConfiguration));
 
         dto.TemplateKey.Should().Be("modern-dine");
         dto.IsActive.Should().BeTrue();
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
         fx.Db.WebsiteTemplates.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithoutDesignConfiguration_Throws()
+    {
+        var fx = TestFactory.Create();
+        var service = TestFactory.CreateTemplateService(fx);
+
+        // A catalogue template is rendered by the generic template renderer,
+        // so it can never be created without a default design configuration.
+        var act = () => service.CreateAsync(
+            new CreateWebsiteTemplateRequest("Modern", "modern-dine", "desc", null));
+
+        await act.Should().ThrowAsync<DomainException>()
+            .Where(e => e.Code == "TEMPLATE_DESIGN_CONFIGURATION_REQUIRED");
+        fx.Db.WebsiteTemplates.Should().BeEmpty();
     }
 
     [Fact]
@@ -92,5 +171,73 @@ public sealed class WebsiteTemplateServiceTests
         website.WebsiteTemplateId.Should().Be(template.Id);
         var reloaded = await fx.Db.WebsiteTemplates.FirstAsync(t => t.Id == template.Id);
         reloaded.IsActive.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithDesignConfiguration_PersistsAndReturnsIt()
+    {
+        var fx = TestFactory.Create();
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var dto = await service.CreateAsync(new CreateWebsiteTemplateRequest(
+            "Spice Garden",
+            "spice-garden",
+            "Desi",
+            null,
+            ValidDesignConfiguration));
+
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+
+        var stored = await fx.Db.WebsiteTemplates.SingleAsync(t => t.Id == dto.Id);
+        stored.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithDesignConfiguration_ReplacesStoredValue()
+    {
+        var fx = TestFactory.Create();
+        var template = TestFactory.AddTemplate(fx, "Classic", "classic");
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var dto = await service.UpdateAsync(
+            template.Id,
+            new UpdateWebsiteTemplateRequest(null, null, null, ValidDesignConfiguration));
+
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+
+        var stored = await fx.Db.WebsiteTemplates.SingleAsync(t => t.Id == template.Id);
+        stored.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_WithoutDesignConfiguration_LeavesStoredValueUntouched()
+    {
+        var fx = TestFactory.Create();
+        var template = TestFactory.AddTemplate(
+            fx, "Classic", "classic", designConfigurationJson: ValidDesignConfiguration);
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var dto = await service.UpdateAsync(
+            template.Id,
+            new UpdateWebsiteTemplateRequest("Renamed", null, null));
+
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithMalformedDesignConfiguration_ThrowsDomainException()
+    {
+        var fx = TestFactory.Create();
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var act = () => service.CreateAsync(new CreateWebsiteTemplateRequest(
+            "Broken",
+            "broken",
+            null,
+            null,
+            "{ not json"));
+
+        await act.Should().ThrowAsync<DomainException>()
+            .Where(e => e.Code == "TEMPLATE_DESIGN_CONFIGURATION_INVALID");
     }
 }

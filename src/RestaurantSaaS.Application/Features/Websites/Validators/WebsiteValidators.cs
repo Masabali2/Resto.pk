@@ -14,6 +14,13 @@ public sealed class CreateWebsiteTemplateRequestValidator : AbstractValidator<Cr
             .MaximumLength(64)
             .Matches("^[a-zA-Z0-9._-]+$").WithMessage("Template key may contain only letters, digits, '-', '.' or '_'.");
         RuleFor(x => x.Description).MaximumLength(1000);
+
+        // A catalogue template is rendered by the generic template renderer,
+        // so it has to be created with a valid default design configuration.
+        // The rule validates the document once and reports the exact reason.
+        RuleFor(x => x.DesignConfigurationJson)
+            .Custom((json, context) =>
+                WebsiteTemplateDesignConfigurationRule.ApplyRequired(json, context));
     }
 }
 
@@ -23,8 +30,14 @@ public sealed class UpdateWebsiteTemplateRequestValidator : AbstractValidator<Up
     {
         RuleFor(x => x.Name).MaximumLength(100);
         RuleFor(x => x.Description).MaximumLength(1000);
-        RuleFor(x => x).Must(x => x.Name is not null || x.Description is not null || x.IsActive is not null)
+        RuleFor(x => x).Must(x => x.Name is not null || x.Description is not null || x.IsActive is not null || x.DesignConfigurationJson is not null)
             .WithMessage("At least one field must be provided.");
+
+        // A supplied configuration has to be valid; an omitted one leaves the
+        // stored design configuration untouched.
+        RuleFor(x => x.DesignConfigurationJson)
+            .Custom((json, context) =>
+                WebsiteTemplateDesignConfigurationRule.ApplyOptional(json, context));
     }
 }
 

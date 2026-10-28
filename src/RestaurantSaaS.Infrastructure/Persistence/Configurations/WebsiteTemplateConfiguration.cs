@@ -11,7 +11,12 @@ public sealed class WebsiteTemplateConfiguration
 {
     public void Configure(EntityTypeBuilder<WebsiteTemplate> builder)
     {
-        builder.ToTable("WebsiteTemplates");
+        builder.ToTable("WebsiteTemplates", table =>
+        {
+            table.HasCheckConstraint(
+                "CK_WebsiteTemplates_ValidDesignJson",
+                "[DesignConfigurationJson] IS NULL OR ISJSON([DesignConfigurationJson]) = 1");
+        });
 
         builder.HasKey(t => t.Id);
 
@@ -27,6 +32,10 @@ public sealed class WebsiteTemplateConfiguration
             .HasMaxLength(64);
 
         builder.Property(t => t.PreviewImageFileId)
+            .IsRequired(false);
+
+        builder.Property(t => t.DesignConfigurationJson)
+            .HasColumnType("nvarchar(max)")
             .IsRequired(false);
 
         builder.Property(t => t.CreatedAt)

@@ -11,11 +11,35 @@ public sealed record WebsiteTemplateDto(
     string TemplateKey,
     Guid? PreviewImageFileId,
     bool IsActive,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string? DesignConfigurationJson);
 
-public sealed record CreateWebsiteTemplateRequest(string Name, string TemplateKey, string? Description, Guid? PreviewImageFileId);
+public sealed record CreateWebsiteTemplateRequest(
+    string Name,
+    string TemplateKey,
+    string? Description,
+    Guid? PreviewImageFileId,
+    string? DesignConfigurationJson = null);
 
-public sealed record UpdateWebsiteTemplateRequest(string? Name, string? Description, bool? IsActive);
+public sealed record UpdateWebsiteTemplateRequest(
+    string? Name,
+    string? Description,
+    bool? IsActive,
+    string? DesignConfigurationJson = null);
+
+/// <summary>
+/// Anonymous, read-only view of an ACTIVE catalogue template.
+/// Deliberately excludes administrative metadata (<c>IsActive</c>,
+/// <c>CreatedAt</c>) and storage references (<c>PreviewImageFileId</c>):
+/// the public marketing site renders the template from
+/// <see cref="DesignConfigurationJson"/> only.
+/// </summary>
+public sealed record PublicWebsiteTemplateDto(
+    Guid Id,
+    string Name,
+    string? Description,
+    string TemplateKey,
+    string? DesignConfigurationJson);
 
 // ===================== Websites (tenant-owned) =====================
 

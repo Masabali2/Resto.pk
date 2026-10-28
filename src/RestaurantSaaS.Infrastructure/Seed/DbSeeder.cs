@@ -45,6 +45,8 @@ public static class DbSeeder
 
         await SeedSubscriptionPlansAsync(db);
 
+        await WebsiteTemplateCatalogSeeder.SeedAsync(db);
+
         var admin = await EnsurePlatformAdminUserAsync(
             db,
             clock,

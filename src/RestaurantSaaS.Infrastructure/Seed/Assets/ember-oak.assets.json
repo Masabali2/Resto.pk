@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "ember-oak",
+  "directory": "assets/images/Ember&Oak",
+  "assets": [
+    {
+      "fileName": "ember1.png",
+      "alt": "A dimly lit fine-dining room with timber screens, black chairs and set tables",
+      "width": 900,
+      "height": 600,
+      "bytes": 161605,
+      "sha256": "d1cb329271272b85aacd0042e26c61b0d3fc8f341d2fc092180b76bf849023be"
+    },
+    {
+      "fileName": "ember2.png",
+      "alt": "A waterside dining terrace with white tables under a canvas canopy at sunset",
+      "width": 600,
+      "height": 450,
+      "bytes": 85944,
+      "sha256": "168928be0284477a089f84dbf118a9ff99d33c76ae60dae736bcd8ba10078532"
+    },
+    {
+      "fileName": "ember3.png",
+      "alt": "Friends sharing burgers and fries around a tiled table, seen from above",
+      "width": 600,
+      "height": 450,
+      "bytes": 92522,
+      "sha256": "ce8eca6e64f28a020384518ccfd76c86df9bad18fc22229aec8c5e07f746fddb"
+    },
+    {
+      "fileName": "ember4.png",
+      "alt": "Guests laughing over small plates and wine in a lively bistro",
+      "width": 600,
+      "height": 400,
+      "bytes": 73132,
+      "sha256": "dae2b8008f8dfa385f87389de93bd56c4a3853f33ac4a1ae3f6b6a8bd72e8231"
+    },
+    {
+      "fileName": "ember5.png",
+      "alt": "Chicken skewers charring over a smoky charcoal grill",
+      "width": 600,
+      "height": 366,
+      "bytes": 47501,
+      "sha256": "5bf73a7fb19a1cd75b17a18b23908141a853abb855bf0f11d1ed27726d48233a"
+    },
+    {
+      "fileName": "ember6.png",
+      "alt": "Pan-seared salmon fillet on courgette ribbons with a lime wedge",
+      "width": 600,
+      "height": 400,
+      "bytes": 38207,
+      "sha256": "7d915a22c6480a83adc95ae322c4c9acd1d6a4e2cac687f803ba805e3879f2e9"
+    },
+    {
+      "fileName": "ember7.png",
+      "alt": "Sliced dry-aged steak, seared dark and rested on a wooden board",
+      "width": 600,
+      "height": 338,
+      "bytes": 45885,
+      "sha256": "cfbf887fa8b7379c4f95de9a53cbbd67e313701f499632a2c17de6eff29c5962"
+    },
+    {
+      "fileName": "ember8.png",
+      "alt": "Creamy mushroom risotto finished with herbs and parmesan in a white bowl",
+      "width": 600,
+      "height": 400,
+      "bytes": 24549,
+      "sha256": "87b1736482508f4f95de7e3cf8ad4557d5dcb67e7e553277e9c0653a62dbfdb3"
+    }
+  ],
+  "placements": {
+    "hero": "ember1.png",
+    "about": "ember7.png",
+    "gallery": [
+      "ember2.png",
+      "ember3.png",
+      "ember4.png",
+      "ember5.png",
+      "ember6.png",
+      "ember8.png"
+    ]
+  }
+}
