@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Api.Services.Authentication;
+using RestaurantSaaS.Application.Common.Files;
+using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Options;
 using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
@@ -100,6 +102,19 @@ public static class DependencyInjection
         services.AddScoped<IPlatformAdminService, PlatformAdminService>();
         services.AddScoped<IMenuService, MenuService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
+
+        // Image upload / asset management.
+        services.AddSingleton<IImageDimensionReader, ImageDimensionReader>();
+        services.AddOptions<ImageUploadOptions>()
+            .Bind(configuration.GetSection("ImageUpload"))
+            .ValidateOnStart();
+        services.AddScoped<IAssetUploadService, AssetUploadService>();
+        services.AddScoped<UploadDestinationContext>();
+        services.AddScoped<IUploadDestinationContext>(
+            sp => sp.GetRequiredService<UploadDestinationContext>());
+        services.AddScoped<IUploadDestinationHandler, WebsiteSectionUploadHandler>();
+        services.AddScoped<IUploadDestinationHandler, RestaurantLogoUploadHandler>();
+        services.AddScoped<IUploadDestinationHandler, MenuItemUploadHandler>();
 
         RegisterValidators(services);
 
