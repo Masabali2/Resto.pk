@@ -34,9 +34,28 @@ namespace RestaurantSaaS.Application.Common;
 ///     "heroTitle": "A Taste of Tradition",
 ///     "heroDescription": "Discover comforting dishes prepared with fresh ingredients.",
 ///     "primaryActionLabel": "Explore Our Menu",
-///     "sampleDishes": [ { "name": "Signature Karahi", "price": "PKR 1,650" } ]
-///   }
+///     "sampleDishes": [ { "name": "Signature Karahi", "price": "PKR 1,650" } ],
+///     "heroAssetId": "sg-sample-hero-png",
+///     "aboutAssetId": "sg-sample-about-png",
+///     "galleryAssetIds": [ "sg-sample-gallery-png" ]
+///   },
+///   "assets": [
+///     {
+///       "assetId": "sg-sample-hero-png",
+///       "url": "/assets/images/Sample/sample-hero.png",
+///       "alt": "A shared table of seasonal dishes",
+///       "width": 1600,
+///       "height": 1200
+///     }
+///   ]
 /// }
+///
+/// Assets are an optional registry of reusable template images. Their URLs
+/// must be same-origin, root-relative paths: absolute URLs, protocol-relative
+/// URLs, schemes (including <c>javascript:</c>), data URLs and parent-directory
+/// traversal are rejected. Placements are references by <c>assetId</c>, so a
+/// section never embeds a filename and the gallery keeps its configured order.
+/// Documents without an asset registry keep validating exactly as before.
 /// </summary>
 public static class WebsiteTemplateDesignSchema
 {
@@ -46,6 +65,11 @@ public static class WebsiteTemplateDesignSchema
     public const int MaxTags = 12;
     public const int MaxSampleDishes = 8;
     public const int MaxStringLength = 240;
+    public const int MaxAssets = 32;
+    public const int MaxGalleryAssets = 12;
+    public const int MaxAssetIdLength = 100;
+    public const int MaxAssetUrlLength = 300;
+    public const int MaxImageDimension = 20_000;
 
     public static readonly IReadOnlySet<string> HeadingFonts = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -148,7 +172,17 @@ public static class WebsiteTemplateDesignSchema
         "featured",
         "displayOrder",
         "design",
-        "previewContent"
+        "previewContent",
+        "assets"
+    };
+
+    private static readonly HashSet<string> AllowedAssetKeys = new(StringComparer.Ordinal)
+    {
+        "assetId",
+        "url",
+        "alt",
+        "width",
+        "height"
     };
 
     private static readonly HashSet<string> AllowedDesignKeys = new(StringComparer.Ordinal)
@@ -183,7 +217,10 @@ public static class WebsiteTemplateDesignSchema
         "heroTitle",
         "heroDescription",
         "primaryActionLabel",
-        "sampleDishes"
+        "sampleDishes",
+        "heroAssetId",
+        "aboutAssetId",
+        "galleryAssetIds"
     };
 
     private static readonly HashSet<string> AllowedDishKeys = new(StringComparer.Ordinal)
@@ -300,9 +337,18 @@ public static class WebsiteTemplateDesignSchema
                     return designError;
             }
 
+            var assetIds = new HashSet<string>(StringComparer.Ordinal);
+
+            if (doc.RootElement.TryGetProperty("assets", out var assets))
+            {
+                var assetsError = ValidateAssets(assets, assetIds);
+                if (assetsError is not null)
+                    return assetsError;
+            }
+
             if (doc.RootElement.TryGetProperty("previewContent", out var previewContent))
             {
-                var previewError = ValidatePreviewContent(previewContent);
+                var previewError = ValidatePreviewContent(previewContent, assetIds);
                 if (previewError is not null)
                     return previewError;
             }
@@ -443,7 +489,102 @@ public static class WebsiteTemplateDesignSchema
         return null;
     }
 
-    private static string? ValidatePreviewContent(JsonElement previewContent)
+    /// <summary>
+    /// Validates the optional reusable image registry. The <c>url</c> key is the
+    /// single exception to the blanket forbidden-property guard: it is allowed
+    /// here because every value is constrained to a same-origin, root-relative
+    /// path (no scheme, host, traversal or backslash).
+    /// </summary>
+    private static string? ValidateAssets(JsonElement assets, HashSet<string> assetIds)
+    {
+        if (assets.ValueKind != JsonValueKind.Array)
+            return "'assets' must be an array.";
+
+        if (assets.GetArrayLength() > MaxAssets)
+            return $"A template may declare at most {MaxAssets} assets.";
+
+        var urls = new HashSet<string>(StringComparer.Ordinal);
+        var index = 0;
+
+        foreach (var asset in assets.EnumerateArray())
+        {
+            index++;
+
+            if (asset.ValueKind != JsonValueKind.Object)
+                return $"Asset #{index} must be an object.";
+
+            foreach (var prop in asset.EnumerateObject())
+            {
+                if (!AllowedAssetKeys.Contains(prop.Name))
+                    return $"Unsupported asset property '{prop.Name}'.";
+
+                if (prop.Name != "url" && IsForbiddenPropertyName(prop.Name))
+                    return $"Property 'assets.{prop.Name}' is not permitted.";
+            }
+
+            if (!asset.TryGetProperty("assetId", out var assetId) ||
+                assetId.ValueKind != JsonValueKind.String)
+            {
+                return $"Asset #{index} requires a string 'assetId'.";
+            }
+
+            var id = assetId.GetString()!;
+
+            if (!IsValidAssetId(id))
+                return $"Asset #{index} 'assetId' must be a lowercase slug (letters, digits and '-', up to {MaxAssetIdLength} characters).";
+
+            if (!assetIds.Add(id))
+                return $"Asset ID '{id}' is declared more than once.";
+
+            if (!asset.TryGetProperty("url", out var url) ||
+                url.ValueKind != JsonValueKind.String)
+            {
+                return $"Asset '{id}' requires a string 'url'.";
+            }
+
+            var urlValue = url.GetString()!;
+
+            if (!IsSafeAssetUrl(urlValue))
+                return $"Asset '{id}' must use a same-origin, root-relative image URL.";
+
+            if (!urls.Add(urlValue))
+                return $"Asset URL '{urlValue}' is declared more than once.";
+
+            if (!asset.TryGetProperty("alt", out var alt) ||
+                alt.ValueKind != JsonValueKind.String)
+            {
+                return $"Asset '{id}' requires a string 'alt'.";
+            }
+
+            var altValue = alt.GetString()!.Trim();
+
+            if (altValue.Length is 0 or > MaxStringLength)
+                return $"Asset '{id}' 'alt' must be between 1 and {MaxStringLength} characters.";
+
+            if (ContainsUnsafeText(altValue))
+                return $"Asset '{id}' 'alt' contains disallowed content.";
+
+            foreach (var dimension in new[] { "width", "height" })
+            {
+                if (!asset.TryGetProperty(dimension, out var value))
+                    continue;
+
+                if (value.ValueKind != JsonValueKind.Number ||
+                    !value.TryGetInt32(out var pixels) ||
+                    pixels < 1 ||
+                    pixels > MaxImageDimension)
+                {
+                    return $"Asset '{id}' '{dimension}' must be an integer between 1 and {MaxImageDimension}.";
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ValidatePreviewContent(
+        JsonElement previewContent,
+        IReadOnlySet<string> assetIds)
     {
         if (previewContent.ValueKind != JsonValueKind.Object)
             return "'previewContent' must be an object.";
@@ -515,7 +656,90 @@ public static class WebsiteTemplateDesignSchema
             }
         }
 
+        foreach (var referenceKey in new[] { "heroAssetId", "aboutAssetId" })
+        {
+            if (!previewContent.TryGetProperty(referenceKey, out var reference))
+                continue;
+
+            if (reference.ValueKind != JsonValueKind.String)
+                return $"'{referenceKey}' must be a string.";
+
+            var assetId = reference.GetString()!;
+
+            if (!assetIds.Contains(assetId))
+                return $"'{referenceKey}' references unknown asset '{assetId}'.";
+        }
+
+        if (previewContent.TryGetProperty("galleryAssetIds", out var gallery))
+        {
+            if (gallery.ValueKind != JsonValueKind.Array)
+                return "'galleryAssetIds' must be an array.";
+
+            if (gallery.GetArrayLength() > MaxGalleryAssets)
+                return $"A gallery may reference at most {MaxGalleryAssets} assets.";
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+
+            foreach (var reference in gallery.EnumerateArray())
+            {
+                if (reference.ValueKind != JsonValueKind.String)
+                    return "Every gallery asset reference must be a string.";
+
+                var assetId = reference.GetString()!;
+
+                if (!assetIds.Contains(assetId))
+                    return $"'galleryAssetIds' references unknown asset '{assetId}'.";
+
+                if (!seen.Add(assetId))
+                    return $"Gallery asset '{assetId}' is referenced more than once.";
+            }
+        }
+
         return null;
+    }
+
+    private static bool IsValidAssetId(string value)
+    {
+        if (value.Length is 0 or > MaxAssetIdLength)
+            return false;
+
+        if (!char.IsAsciiLetterOrDigit(value[0]) ||
+            !char.IsAsciiLetterOrDigit(value[^1]))
+        {
+            return false;
+        }
+
+        return value.All(c =>
+            char.IsAsciiLetterOrDigit(c) ||
+            (c >= 'a' && c <= 'z') ||
+            c == '-');
+    }
+
+    /// <summary>
+    /// Accepts only same-origin, root-relative image paths. Absolute URLs
+    /// (any scheme), protocol-relative URLs, backslashes, parent-directory
+    /// traversal, query strings and fragments are rejected, so an asset can
+    /// never point outside the site that serves the renderer.
+    /// </summary>
+    private static bool IsSafeAssetUrl(string value)
+    {
+        if (value.Length is 0 or > MaxAssetUrlLength)
+            return false;
+
+        if (value[0] != '/' || value.StartsWith("//", StringComparison.Ordinal))
+            return false;
+
+        if (value.Contains('\\') ||
+            value.Contains(':') ||
+            value.Contains("//", StringComparison.Ordinal) ||
+            value.Contains("..", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return value.All(c =>
+            char.IsAsciiLetterOrDigit(c) ||
+            c is '-' or '.' or '_' or '~' or '/' or '%');
     }
 
     private static IReadOnlySet<string>? LayoutAllowList(string key) => key switch

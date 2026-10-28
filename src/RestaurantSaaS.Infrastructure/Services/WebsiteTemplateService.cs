@@ -12,7 +12,8 @@ namespace RestaurantSaaS.Infrastructure.Services;
 /// <summary>
 /// Platform-admin template catalogue management. Mutations are reachable only
 /// through the PlatformAdminOnly policy at the API boundary; reads of ACTIVE
-/// templates are exposed to tenants via IWebsiteService.ListAvailableTemplatesAsync.
+/// templates are exposed to tenants via IWebsiteService.ListAvailableTemplatesAsync
+/// and anonymously via the public marketing endpoint (ListPublicAsync).
 /// TemplateKey uniqueness is enforced at the database level (UNIQUE index) —
 /// application pre-check exists only for a friendly error message.
 /// </summary>
@@ -25,6 +26,26 @@ public sealed class WebsiteTemplateService(ApplicationDbContext db) : IWebsiteTe
 
         var items = await query.OrderBy(t => t.Name).ToListAsync(ct);
         return items.Select(ToDto).ToList();
+    }
+
+    /// <summary>
+    /// Reuses <see cref="ListAsync"/> so the public catalogue follows exactly
+    /// the same active-only filter and Name ordering as the tenant catalogue.
+    /// Only public display fields are projected; administrative metadata and
+    /// the preview image storage reference never leave the API.
+    /// </summary>
+    public async Task<IReadOnlyList<PublicWebsiteTemplateDto>> ListPublicAsync(CancellationToken ct = default)
+    {
+        var templates = await ListAsync(includeInactive: false, ct);
+
+        return templates
+            .Select(t => new PublicWebsiteTemplateDto(
+                t.Id,
+                t.Name,
+                t.Description,
+                t.TemplateKey,
+                t.DesignConfigurationJson))
+            .ToList();
     }
 
     public async Task<WebsiteTemplateDto> GetByIdAsync(Guid id, CancellationToken ct = default)

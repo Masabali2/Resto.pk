@@ -19,10 +19,17 @@ public sealed record WebsiteTemplatePreset(
 /// <summary>
 /// Idempotent catalogue seeder for the global website template catalogue.
 ///
-/// The seeder INSERT-ONLY: a template that already exists (matched by its
-/// stable <c>TemplateKey</c>) is never touched, so platform-admin edits —
-/// renamed templates, retires, custom design configurations — survive a
-/// re-run. Only genuinely missing templates are added.
+/// Missing templates (matched by their stable <c>TemplateKey</c>) are inserted.
+/// Existing templates keep every platform-admin edit — name, description,
+/// active flag and all design content — while the manifest-managed image
+/// fields (<c>assets</c>, <c>heroAssetId</c>, <c>aboutAssetId</c> and the
+/// ordered <c>galleryAssetIds</c>) are reconciled from the checked-in
+/// manifests. This is what repairs a row that was seeded before its images
+/// existed without overwriting reviewed copy or styling.
+///
+/// A row whose stored configuration is empty or unreadable is never touched,
+/// and a configuration is only written when its text actually changes, so
+/// repeated seeding performs no database writes.
 ///
 /// The catalogue lives in the backend on purpose: it is the single source of
 /// truth for the tenant catalogue endpoint and for the generic renderer. The
@@ -34,97 +41,143 @@ public static class WebsiteTemplateCatalogSeeder
     {
         ArgumentNullException.ThrowIfNull(db);
 
-        var existingKeys = await db.WebsiteTemplates
-            .AsNoTracking()
-            .Select(t => t.TemplateKey)
-            .ToListAsync(ct);
+        var existing = await db.WebsiteTemplates.ToListAsync(ct);
 
-        var known = new HashSet<string>(existingKeys, StringComparer.OrdinalIgnoreCase);
-        var added = 0;
+        var byKey = existing.ToDictionary(
+            template => template.TemplateKey,
+            StringComparer.OrdinalIgnoreCase);
+
+        var changed = 0;
 
         foreach (var preset in Presets)
         {
-            if (!known.Add(preset.TemplateKey))
+            if (!byKey.TryGetValue(preset.TemplateKey, out var template))
+            {
+                template = WebsiteTemplate.Create(
+                    preset.Name,
+                    preset.TemplateKey,
+                    preset.Description);
+
+                template.SetDesignConfiguration(preset.DesignConfigurationJson);
+
+                db.WebsiteTemplates.Add(template);
+                byKey.Add(preset.TemplateKey, template);
+                changed++;
+                continue;
+            }
+
+            var manifest = WebsiteTemplateAssetManifestRegistry.Find(preset.TemplateKey);
+
+            if (manifest is null)
                 continue;
 
-            var template = WebsiteTemplate.Create(
-                preset.Name,
-                preset.TemplateKey,
-                preset.Description);
+            var reconciled = WebsiteTemplateAssetConfigurationBuilder.Reconcile(
+                template.DesignConfigurationJson,
+                manifest);
 
-            template.SetDesignConfiguration(preset.DesignConfigurationJson);
+            if (reconciled is null ||
+                string.Equals(reconciled, template.DesignConfigurationJson, StringComparison.Ordinal))
+            {
+                continue;
+            }
 
-            db.WebsiteTemplates.Add(template);
-            added++;
+            template.SetDesignConfiguration(reconciled);
+            changed++;
         }
 
-        if (added > 0)
+        if (changed > 0)
             await db.SaveChangesAsync(ct);
     }
 
+    /// <summary>
+    /// Creates a preset through the one generic image builder. The stable
+    /// template key selects the optional manifest; the base document stays
+    /// authoritative for every other property. Templates without a manifest
+    /// are passed through unchanged.
+    /// </summary>
+    private static WebsiteTemplatePreset Preset(
+        string name,
+        string templateKey,
+        string description,
+        string baseDesignConfiguration) =>
+        new(
+            name,
+            templateKey,
+            description,
+            WebsiteTemplateAssetConfigurationBuilder.Apply(templateKey, baseDesignConfiguration));
+
+    /// <summary>
+    /// Authoritative Spice Garden design settings and preview copy. The image
+    /// registry and the hero/about/gallery references are added by
+    /// <see cref="WebsiteTemplateAssetConfigurationBuilder"/> from the
+    /// checked-in manifest, so filenames and URLs never live in the Angular
+    /// client.
+    /// </summary>
+    private const string SpiceGardenBaseDesignConfiguration = """
+        {
+          "schemaVersion": 1,
+          "category": "South Asian / Desi",
+          "tags": ["desi", "family-dining", "traditional"],
+          "featured": true,
+          "displayOrder": 1,
+          "design": {
+            "palette": {
+              "background": "#FFF8EE",
+              "surface": "#FFFFFF",
+              "text": "#24352A",
+              "mutedText": "#667368",
+              "primary": "#24563A",
+              "accent": "#D9A441",
+              "border": "#E9DFCE"
+            },
+            "typography": {
+              "headingFont": "serif-editorial",
+              "bodyFont": "sans-humanist"
+            },
+            "layout": {
+              "header": "centered",
+              "hero": "split",
+              "menu": "featured-cards",
+              "gallery": "masonry",
+              "footer": "multi-column",
+              "buttons": "solid",
+              "corners": "soft"
+            },
+            "sections": [
+              { "type": "header", "enabled": true, "order": 1 },
+              { "type": "hero", "enabled": true, "order": 2 },
+              { "type": "menu", "enabled": true, "order": 3 },
+              { "type": "about", "enabled": true, "order": 4 },
+              { "type": "gallery", "enabled": true, "order": 5 },
+              { "type": "contact", "enabled": true, "order": 6 },
+              { "type": "footer", "enabled": true, "order": 7 }
+            ]
+          },
+          "previewContent": {
+            "eyebrow": "Authentic flavours, warmly served",
+            "heroTitle": "A Taste of Tradition",
+            "heroDescription": "Discover comforting dishes prepared with fresh ingredients and slow-cooked gravies.",
+            "primaryActionLabel": "Explore Our Menu",
+            "sampleDishes": [
+              { "name": "Signature Karahi", "price": "PKR 1,650" },
+              { "name": "Smoky Chicken Tikka", "price": "PKR 950" },
+              { "name": "Daal Makhani", "price": "PKR 780" }
+            ]
+          }
+        }
+        """;
+
     public static IReadOnlyList<WebsiteTemplatePreset> Presets { get; } =
     [
-        new WebsiteTemplatePreset(
+        Preset(
             "Spice Garden",
             "spice-garden",
-            "Warm desi hospitality with editorial serif headings and a generous, food-first layout.",
-            """
-            {
-              "schemaVersion": 1,
-              "category": "South Asian / Desi",
-              "tags": ["desi", "family-dining", "traditional"],
-              "featured": true,
-              "displayOrder": 1,
-              "design": {
-                "palette": {
-                  "background": "#FFF8EE",
-                  "surface": "#FFFFFF",
-                  "text": "#24352A",
-                  "mutedText": "#667368",
-                  "primary": "#24563A",
-                  "accent": "#D99027",
-                  "border": "#E9DFCE"
-                },
-                "typography": {
-                  "headingFont": "serif-editorial",
-                  "bodyFont": "sans-humanist"
-                },
-                "layout": {
-                  "header": "centered",
-                  "hero": "split",
-                  "menu": "featured-cards",
-                  "gallery": "masonry",
-                  "footer": "multi-column",
-                  "buttons": "solid",
-                  "corners": "soft"
-                },
-                "sections": [
-                  { "type": "header", "enabled": true, "order": 1 },
-                  { "type": "hero", "enabled": true, "order": 2 },
-                  { "type": "menu", "enabled": true, "order": 3 },
-                  { "type": "about", "enabled": true, "order": 4 },
-                  { "type": "gallery", "enabled": true, "order": 5 },
-                  { "type": "contact", "enabled": true, "order": 6 },
-                  { "type": "footer", "enabled": true, "order": 7 }
-                ]
-              },
-              "previewContent": {
-                "eyebrow": "Authentic flavours, warmly served",
-                "heroTitle": "A Taste of Tradition",
-                "heroDescription": "Discover comforting dishes prepared with fresh ingredients and slow-cooked gravies.",
-                "primaryActionLabel": "Explore Our Menu",
-                "sampleDishes": [
-                  { "name": "Signature Karahi", "price": "PKR 1,650" },
-                  { "name": "Smoky Chicken Tikka", "price": "PKR 950" },
-                  { "name": "Daal Makhani", "price": "PKR 780" }
-                ]
-              }
-            }
-            """),
-        new WebsiteTemplatePreset(
+            "Forest-green, warm-ivory and antique-gold hospitality inspired by premium Pakistani dining, with editorial serif headings and food-first storytelling.",
+            SpiceGardenBaseDesignConfiguration),
+        Preset(
             "Ember & Oak",
             "ember-oak",
-            "Fine dining with a cinematic, image-led hero and calm premium spacing.",
+            "A cinematic fine-dining identity with charcoal, champagne and burnt-bronze tones, elegant typography and generous premium spacing.",
             """
             {
               "schemaVersion": 1,
@@ -134,13 +187,13 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 2,
               "design": {
                 "palette": {
-                  "background": "#F7F2EA",
-                  "surface": "#FFFFFF",
-                  "text": "#1C1B1A",
-                  "mutedText": "#6B6560",
-                  "primary": "#2E2A27",
-                  "accent": "#B0672A",
-                  "border": "#E3D9CB"
+                  "background": "#F5EFE5",
+                  "surface": "#FFFCF7",
+                  "text": "#252321",
+                  "mutedText": "#716A62",
+                  "primary": "#252321",
+                  "accent": "#B87543",
+                  "border": "#E5D9C9"
                 },
                 "typography": {
                   "headingFont": "serif-editorial",
@@ -178,10 +231,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Urban Slice",
             "urban-slice",
-            "Bold, fast-casual design built around a prominent ordering action and compact menu cards.",
+            "A high-energy pizza identity with tomato-red, golden-yellow and warm-white tones, bold typography and an order-first menu.",
             """
             {
               "schemaVersion": 1,
@@ -191,13 +244,13 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 3,
               "design": {
                 "palette": {
-                  "background": "#FAF7F2",
+                  "background": "#FFF9F0",
                   "surface": "#FFFFFF",
-                  "text": "#22252A",
-                  "mutedText": "#636B73",
+                  "text": "#272329",
+                  "mutedText": "#6B6265",
                   "primary": "#D7263D",
-                  "accent": "#F5A524",
-                  "border": "#E6DFD6"
+                  "accent": "#FFC857",
+                  "border": "#F0E2D7"
                 },
                 "typography": {
                   "headingFont": "sans-bold",
@@ -235,10 +288,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Coastal Table",
             "coastal-table",
-            "Airy coastal design with a centered hero and spacious, unhurried menu presentation.",
+            "A fresh coastal identity with deep teal, seafoam and white, airy spacing and a calm seafood-led presentation.",
             """
             {
               "schemaVersion": 1,
@@ -248,12 +301,12 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 4,
               "design": {
                 "palette": {
-                  "background": "#F4FAF9",
+                  "background": "#F3FAF8",
                   "surface": "#FFFFFF",
-                  "text": "#123B3E",
-                  "mutedText": "#5B7578",
-                  "primary": "#0E6F73",
-                  "accent": "#2E9C8F",
+                  "text": "#153B3D",
+                  "mutedText": "#587779",
+                  "primary": "#126B70",
+                  "accent": "#C9E8DF",
                   "border": "#D3E6E4"
                 },
                 "typography": {
@@ -292,10 +345,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Bloom Café",
             "bloom-cafe",
-            "A soft, elegant café design with blush tones, rounded cards and editorial typography.",
+            "A boutique café identity with dusty rose, cream and espresso-brown tones, elegant editorial typography and soft card styling.",
             """
             {
               "schemaVersion": 1,
@@ -305,12 +358,12 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 5,
               "design": {
                 "palette": {
-                  "background": "#FDF5F7",
+                  "background": "#FFF4F0",
                   "surface": "#FFFFFF",
-                  "text": "#3A2620",
-                  "mutedText": "#7C635A",
+                  "text": "#49312C",
+                  "mutedText": "#806A64",
                   "primary": "#B5647C",
-                  "accent": "#D99027",
+                  "accent": "#D9A441",
                   "border": "#EFDCE0"
                 },
                 "typography": {
@@ -349,10 +402,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Olive Grove",
             "olive-grove",
-            "Mediterranean naturalism with editorial split sections and a balanced gallery.",
+            "A sun-washed Mediterranean identity with olive green, terracotta and natural ivory, organic warmth and editorial split sections.",
             """
             {
               "schemaVersion": 1,
@@ -362,13 +415,13 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 6,
               "design": {
                 "palette": {
-                  "background": "#F6F3E9",
+                  "background": "#F7F2E8",
                   "surface": "#FFFDF8",
-                  "text": "#2F3524",
+                  "text": "#30382A",
                   "mutedText": "#6E7461",
-                  "primary": "#5B6B3A",
-                  "accent": "#C2703D",
-                  "border": "#DFDACA"
+                  "primary": "#667548",
+                  "accent": "#C87952",
+                  "border": "#E3DCCB"
                 },
                 "typography": {
                   "headingFont": "serif-traditional",
@@ -406,10 +459,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Midnight Sushi",
             "midnight-sushi",
-            "Minimal Japanese precision with a restrained palette and a refined, quiet menu layout.",
+            "A premium Japanese identity with obsidian black, soft ivory and vermilion, restrained typography and a refined, quiet menu.",
             """
             {
               "schemaVersion": 1,
@@ -419,13 +472,13 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 7,
               "design": {
                 "palette": {
-                  "background": "#101114",
-                  "surface": "#181A1E",
+                  "background": "#111318",
+                  "surface": "#1C1E23",
                   "text": "#F6F3EC",
                   "mutedText": "#A6A9B0",
                   "primary": "#F6F3EC",
                   "accent": "#C8321E",
-                  "border": "#2A2D33"
+                  "border": "#30333A"
                 },
                 "typography": {
                   "headingFont": "display-wide",
@@ -463,10 +516,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Heritage Kitchen",
             "heritage-kitchen",
-            "Classic editorial warmth with a modern, accessible navigation for a traditional kitchen.",
+            "A traditional grill-house identity with deep maroon, antique gold and parchment, combining heritage warmth with clear modern navigation.",
             """
             {
               "schemaVersion": 1,
@@ -476,12 +529,12 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 8,
               "design": {
                 "palette": {
-                  "background": "#F7F0E0",
+                  "background": "#F8F0DF",
                   "surface": "#FFFBF2",
-                  "text": "#2E1F1B",
+                  "text": "#35211F",
                   "mutedText": "#75635A",
-                  "primary": "#6B1F2B",
-                  "accent": "#C9A227",
+                  "primary": "#762C38",
+                  "accent": "#D1AF55",
                   "border": "#E2D4B8"
                 },
                 "typography": {
@@ -520,10 +573,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Green Fork",
             "green-fork",
-            "A clean, plant-forward grid with clear dietary labelling where the data exists.",
+            "A fresh plant-forward identity with botanical green, lime and white, bright menu cards and clear dietary labelling where data exists.",
             """
             {
               "schemaVersion": 1,
@@ -537,8 +590,8 @@ public static class WebsiteTemplateCatalogSeeder
                   "surface": "#FFFFFF",
                   "text": "#1D3328",
                   "mutedText": "#5F7268",
-                  "primary": "#1F4D3A",
-                  "accent": "#7FB800",
+                  "primary": "#24543C",
+                  "accent": "#A6C95B",
                   "border": "#DCE8DE"
                 },
                 "typography": {
@@ -577,10 +630,10 @@ public static class WebsiteTemplateCatalogSeeder
               }
             }
             """),
-        new WebsiteTemplatePreset(
+        Preset(
             "Street Feast",
             "street-feast",
-            "Energetic, order-first design with asymmetric sections and unapologetically bold headings.",
+            "A vivid street-food identity with vibrant orange, ink black and warm cream, expressive typography and a prominent ordering experience.",
             """
             {
               "schemaVersion": 1,
@@ -590,12 +643,12 @@ public static class WebsiteTemplateCatalogSeeder
               "displayOrder": 10,
               "design": {
                 "palette": {
-                  "background": "#FFF8F0",
+                  "background": "#FFF5EA",
                   "surface": "#FFFFFF",
-                  "text": "#14110F",
-                  "mutedText": "#5E564F",
-                  "primary": "#FF5A1F",
-                  "accent": "#14110F",
+                  "text": "#191512",
+                  "mutedText": "#655B53",
+                  "primary": "#F05A24",
+                  "accent": "#191512",
                   "border": "#F0DFCE"
                 },
                 "typography": {

@@ -226,4 +226,237 @@ public class WebsiteTemplateDesignSchemaTests
         error.Should().NotBeNull();
         error!.Should().Contain("sections");
     }
+
+    /* ---------------- reusable image assets ---------------- */
+
+    private const string DesignWithAssets = """
+    {
+      "schemaVersion": 1,
+      "previewContent": {
+        "heroTitle": "A Taste of Tradition",
+        "heroAssetId": "sg-hero-png",
+        "aboutAssetId": "sg-about-png",
+        "galleryAssetIds": ["sg-gallery-b-png", "sg-gallery-a-png"]
+      },
+      "assets": [
+        {
+          "assetId": "sg-hero-png",
+          "url": "/assets/images/Sample/hero.png",
+          "alt": "A shared table of seasonal dishes",
+          "width": 1600,
+          "height": 1200
+        },
+        {
+          "assetId": "sg-about-png",
+          "url": "/assets/images/Sample/about.png",
+          "alt": "A chef plating a dish"
+        },
+        {
+          "assetId": "sg-gallery-a-png",
+          "url": "/assets/images/Sample/gallery-a.png",
+          "alt": "The dining room"
+        },
+        {
+          "assetId": "sg-gallery-b-png",
+          "url": "/assets/images/Sample/gallery-b.png",
+          "alt": "A bowl of daal"
+        }
+      ]
+    }
+    """;
+
+    [Fact]
+    public void Validate_AssetRegistryAndPlacements_IsAccepted()
+    {
+        WebsiteTemplateDesignSchema.Validate(DesignWithAssets).Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_GalleryOrderIsPartOfTheDocument()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(DesignWithAssets);
+
+        var order = document.RootElement
+            .GetProperty("previewContent")
+            .GetProperty("galleryAssetIds")
+            .EnumerateArray()
+            .Select(entry => entry.GetString())
+            .ToList();
+
+        order.Should().Equal("sg-gallery-b-png", "sg-gallery-a-png");
+        WebsiteTemplateDesignSchema.Validate(DesignWithAssets).Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_DuplicateAssetId_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "sg-hero-png", "url": "/assets/a.png", "alt": "A" },
+            { "assetId": "sg-hero-png", "url": "/assets/b.png", "alt": "B" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("declared more than once");
+    }
+
+    [Fact]
+    public void Validate_DuplicateAssetUrl_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "sg-one-png", "url": "/assets/same.png", "alt": "A" },
+            { "assetId": "sg-two-png", "url": "/assets/same.png", "alt": "B" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("declared more than once");
+    }
+
+    [Fact]
+    public void Validate_UnknownHeroAssetReference_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "previewContent": { "heroAssetId": "sg-missing-png" }
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("unknown asset");
+    }
+
+    [Fact]
+    public void Validate_UnknownGalleryAssetReference_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "previewContent": { "galleryAssetIds": ["sg-missing-png"] }
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("unknown asset");
+    }
+
+    [Fact]
+    public void Validate_DuplicateGalleryReference_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "previewContent": {
+            "galleryAssetIds": ["sg-one-png", "sg-one-png"]
+          },
+          "assets": [
+            { "assetId": "sg-one-png", "url": "/assets/one.png", "alt": "A" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("more than once");
+    }
+
+    [Fact]
+    public void Validate_AssetWithoutAltText_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "sg-one-png", "url": "/assets/one.png" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("alt");
+    }
+
+    [Theory]
+    [InlineData("javascript:alert(1)")]
+    [InlineData("https://evil.example/image.png")]
+    [InlineData("//evil.example/image.png")]
+    [InlineData("/assets/../../secret.png")]
+    [InlineData("/assets/image.png?x=1")]
+    [InlineData("/assets/image file.png")]
+    [InlineData("data:image/png;base64,AAAA")]
+    [InlineData("assets/image.png")]
+    public void Validate_AssetUrlOutsideTheSite_IsRejected(string url)
+    {
+        var error = WebsiteTemplateDesignSchema.Validate($$"""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "sg-one-png", "url": "{{url}}", "alt": "A" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("root-relative");
+    }
+
+    [Fact]
+    public void Validate_AssetRegistryWithoutSectionReferences_IsAccepted()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "sg-one-png", "url": "/assets/one.png", "alt": "A" }
+          ]
+        }
+        """);
+
+        error.Should().BeNull();
+    }
+
+    [Fact]
+    public void Validate_AssetWithUnknownProperty_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            {
+              "assetId": "sg-one-png",
+              "url": "/assets/one.png",
+              "alt": "A",
+              "srcset": "/assets/one@2x.png 2x"
+            }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("srcset");
+    }
+
+    [Fact]
+    public void Validate_AssetIdThatIsNotASlug_IsRejected()
+    {
+        var error = WebsiteTemplateDesignSchema.Validate("""
+        {
+          "schemaVersion": 1,
+          "assets": [
+            { "assetId": "Spice Garden Hero", "url": "/assets/one.png", "alt": "A" }
+          ]
+        }
+        """);
+
+        error.Should().NotBeNull();
+        error!.Should().Contain("assetId");
+    }
 }

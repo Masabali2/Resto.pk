@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "spice-garden",
+  "assetIdPrefix": "sg",
+  "directory": "assets/images/SpiceGarden",
+  "assets": [
+    {
+      "fileName": "spicegarden1.png",
+      "alt": "A shared Pakistani feast of karahi, daal makhani, saag paneer and fresh naan on a linen table",
+      "width": 2400,
+      "height": 1792,
+      "bytes": 10884072,
+      "sha256": "0c6783af561286972866263d191f561232a2396a84ac3a85402dc70bd870135b"
+    },
+    {
+      "fileName": "spicegarden2.png",
+      "alt": "A chef garnishing a copper karahi in the restaurant kitchen",
+      "width": 2400,
+      "height": 1792,
+      "bytes": 5794455,
+      "sha256": "7152191685f798e7a761de2667f989741433a8487e3601e1d94681f74c98f767"
+    },
+    {
+      "fileName": "spicegarden3.png",
+      "alt": "Brass bowls of haldi, dhania, zeera, elaichi, chilli and peppercorns in the spice pantry",
+      "width": 2528,
+      "height": 1696,
+      "bytes": 9063783,
+      "sha256": "30f789d830469d9b4346e2f308652b5e855c96f1fa2c1aafd51370092f2bb3c6"
+    },
+    {
+      "fileName": "spicegarden4.png",
+      "alt": "Charcoal-grilled chicken tikka with mint chutney, red onion and lemon",
+      "width": 2400,
+      "height": 1792,
+      "bytes": 9570880,
+      "sha256": "aa1342ffd0697dcaf1058b3c4e0ecd12d788a159a3784d5f07792ae48f3d1d9a"
+    },
+    {
+      "fileName": "spicegarden5.png",
+      "alt": "Chicken karahi simmering in a hammered copper pot with fresh coriander",
+      "width": 2048,
+      "height": 2048,
+      "bytes": 9943144,
+      "sha256": "9f5390e2f6c806fcbce9028fc3b9d8758cc140eade4d7f3d13a6786a61ee8727"
+    },
+    {
+      "fileName": "spicegarden6.png",
+      "alt": "Daal makhani finished with cream beside a warm naan",
+      "width": 2400,
+      "height": 1792,
+      "bytes": 9577813,
+      "sha256": "0032b8b253130c5eaeac87f3d5efa97f589bd398c4d4774f8ba2bef36b77f9c1"
+    },
+    {
+      "fileName": "spicegarden7.png",
+      "alt": "A steaming karahi with green chillies on a marble table beside a menu card",
+      "width": 2752,
+      "height": 1536,
+      "bytes": 7647348,
+      "sha256": "4e7e682e25ac97a2f0ed0470fb7b8f73abd53fb833896cea74d43567d3041f53"
+    },
+    {
+      "fileName": "spicegarden8.png",
+      "alt": "A softly lit dining room with green velvet booths and brass lanterns",
+      "width": 2528,
+      "height": 1696,
+      "bytes": 8200930,
+      "sha256": "b31b72f5921e4ae62d07b4f9a796f3ffd27479a830db4b20665384daf26efe75"
+    }
+  ],
+  "placements": {
+    "hero": "spicegarden1.png",
+    "about": "spicegarden2.png",
+    "gallery": [
+      "spicegarden8.png",
+      "spicegarden3.png",
+      "spicegarden4.png",
+      "spicegarden5.png",
+      "spicegarden6.png",
+      "spicegarden7.png"
+    ]
+  }
+}

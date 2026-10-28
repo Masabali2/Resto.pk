@@ -27,6 +27,20 @@ public sealed record UpdateWebsiteTemplateRequest(
     bool? IsActive,
     string? DesignConfigurationJson = null);
 
+/// <summary>
+/// Anonymous, read-only view of an ACTIVE catalogue template.
+/// Deliberately excludes administrative metadata (<c>IsActive</c>,
+/// <c>CreatedAt</c>) and storage references (<c>PreviewImageFileId</c>):
+/// the public marketing site renders the template from
+/// <see cref="DesignConfigurationJson"/> only.
+/// </summary>
+public sealed record PublicWebsiteTemplateDto(
+    Guid Id,
+    string Name,
+    string? Description,
+    string TemplateKey,
+    string? DesignConfigurationJson);
+
 // ===================== Websites (tenant-owned) =====================
 
 public sealed record WebsiteDto(

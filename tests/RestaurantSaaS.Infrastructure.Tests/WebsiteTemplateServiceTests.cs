@@ -52,6 +52,53 @@ public sealed class WebsiteTemplateServiceTests
     }
 
     [Fact]
+    public async Task ListPublicAsync_ExcludesInactiveTemplates()
+    {
+        var fx = TestFactory.Create();
+        TestFactory.AddTemplate(fx, "Classic", "classic");
+        TestFactory.AddTemplate(fx, "Retired", "retired", active: false);
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        result.Should().ContainSingle(t => t.TemplateKey == "classic");
+    }
+
+    [Fact]
+    public async Task ListPublicAsync_FollowsTheExistingNameOrdering()
+    {
+        var fx = TestFactory.Create();
+        TestFactory.AddTemplate(fx, "Zest", "zest");
+        TestFactory.AddTemplate(fx, "Aroma", "aroma");
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        result.Select(t => t.TemplateKey).Should().Equal("aroma", "zest");
+    }
+
+    [Fact]
+    public async Task ListPublicAsync_ReturnsTheDesignConfiguration()
+    {
+        var fx = TestFactory.Create();
+        var template = TestFactory.AddTemplate(
+            fx, "Spice Garden", "spice-garden", designConfigurationJson: ValidDesignConfiguration);
+
+        var service = TestFactory.CreateTemplateService(fx);
+
+        var result = await service.ListPublicAsync();
+
+        var dto = result.Should().ContainSingle().Subject;
+        dto.Id.Should().Be(template.Id);
+        dto.Name.Should().Be("Spice Garden");
+        dto.Description.Should().Be("Spice Garden description");
+        dto.TemplateKey.Should().Be("spice-garden");
+        dto.DesignConfigurationJson.Should().Be(ValidDesignConfiguration);
+    }
+
+    [Fact]
     public async Task GetByIdAsync_UnknownId_ThrowsNotFound()
     {
         var fx = TestFactory.Create();

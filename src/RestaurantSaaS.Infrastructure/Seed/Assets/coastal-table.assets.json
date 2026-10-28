@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "templateKey": "coastal-table",
+  "directory": "assets/images/Coastel-Table",
+  "assets": [
+    {
+      "fileName": "coastal-table1.png",
+      "alt": "A driftwood tray of candles, sea glass and starfish on a linen table",
+      "width": 183,
+      "height": 173,
+      "bytes": 6998,
+      "sha256": "df8897ae3d06328c2a27ab86263826fd1bc70a02f5a479bb89b3438f8a02b1c0"
+    },
+    {
+      "fileName": "coastal-table2.png",
+      "alt": "A bright living room with a glass-topped driftwood table and white sofas",
+      "width": 204,
+      "height": 192,
+      "bytes": 6531,
+      "sha256": "20f1233cbb158ae0a4df18190b3b9a330e3a256722477350846fdf3ab0d23a54"
+    },
+    {
+      "fileName": "coastal-table3.png",
+      "alt": "A coastal table setting with linen napkins, glassware and a woven runner",
+      "width": 195,
+      "height": 183,
+      "bytes": 10141,
+      "sha256": "bfbbbaeb879101b264048f9667583c3c84b0735b0150a61b6030d6be980758c6"
+    },
+    {
+      "fileName": "coastal-table4.png",
+      "alt": "A sunlit lounge with a round coffee table, greenery and a dog on the sofa",
+      "width": 204,
+      "height": 192,
+      "bytes": 7389,
+      "sha256": "09d78cb6957b9b24ef67fe1ae5686019a137910820427b285b3381676f9b8a22"
+    },
+    {
+      "fileName": "coastal-table5.png",
+      "alt": "A pale side table with a lamp beside a linen armchair",
+      "width": 204,
+      "height": 192,
+      "bytes": 7262,
+      "sha256": "6f77d3b8c33f1fcb40f3b1a636f2388253b7f2640cc6c98aa383fe2feb59481a"
+    },
+    {
+      "fileName": "coastal-table6.png",
+      "alt": "A covered porch with blue-striped cushions, lanterns and a sea view",
+      "width": 194,
+      "height": 184,
+      "bytes": 11234,
+      "sha256": "bb7654e7f69db91858553f2b6e6451c7fe74586702cd6d1625d3526a9da5ff99"
+    },
+    {
+      "fileName": "coastal-table7.png",
+      "alt": "A white dining room with a chandelier, farmhouse table and hydrangeas",
+      "width": 451,
+      "height": 678,
+      "bytes": 58228,
+      "sha256": "85c97df6848198f26b163050b9c2dd1bd13b4e92035dd54eb63feea1e2a83072"
+    },
+    {
+      "fileName": "coastal-table8.png",
+      "alt": "A waterfront terrace set for dinner with white wicker chairs and palms",
+      "width": 497,
+      "height": 616,
+      "bytes": 47744,
+      "sha256": "c4e332e6ed01f03b9bcff9f185fe2f5c3ebce63e376399ce7e0a8a57833c463d"
+    }
+  ],
+  "placements": {
+    "hero": "coastal-table8.png",
+    "about": "coastal-table7.png",
+    "gallery": [
+      "coastal-table1.png",
+      "coastal-table2.png",
+      "coastal-table3.png",
+      "coastal-table4.png",
+      "coastal-table5.png",
+      "coastal-table6.png"
+    ]
+  }
+}
