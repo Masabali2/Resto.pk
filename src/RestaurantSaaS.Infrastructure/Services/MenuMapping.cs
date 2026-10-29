@@ -34,7 +34,7 @@ internal static class MenuMapping
            .Select(ToDto)
            .ToList());
 
-   public static MenuCategoryDto ToDto(MenuCategory category) => new(
+   public static MenuCategoryDto ToDto(MenuCategory category, int itemCount = 0) => new(
        category.Id,
        category.MenuId,
        category.Name,
@@ -42,9 +42,10 @@ internal static class MenuMapping
        category.DisplayOrder,
        category.IsActive,
        category.CreatedAt,
-       category.UpdatedAt);
+       category.UpdatedAt,
+       itemCount);
 
-   public static MenuItemDto ToDto(MenuItem item, Guid menuId) => new(
+   public static MenuItemDto ToDto(MenuItem item, Guid menuId, string? categoryName = null) => new(
        item.Id,
        item.MenuCategoryId,
        menuId,
@@ -57,5 +58,6 @@ internal static class MenuMapping
        item.IsAvailable,
        item.IsActive,
        item.CreatedAt,
-       item.UpdatedAt);
+       item.UpdatedAt,
+       categoryName);
 }

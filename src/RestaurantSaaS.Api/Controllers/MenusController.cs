@@ -96,9 +96,18 @@ public sealed class MenusController(
    [HttpGet("menus/{menuId:guid}/items")]
    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuItemView)]
    public async Task<ActionResult<ApiResponse<PagedResult<MenuItemDto>>>> ListItems(
-       Guid menuId, [FromQuery] int page = 1, [FromQuery] int pageSize = 50, CancellationToken ct = default)
+       Guid menuId, [FromQuery] MenuItemListQuery query, CancellationToken ct = default)
    {
-       var result = await items.ListByMenuAsync(menuId, page, pageSize, ct);
+       var result = await items.ListByMenuAsync(menuId, query, ct);
        return Ok(ApiResponse<PagedResult<MenuItemDto>>.Ok(result));
+   }
+
+   [HttpGet("menus/{menuId:guid}/items/summary")]
+   [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuItemView)]
+   public async Task<ActionResult<ApiResponse<MenuItemSummaryDto>>> GetItemSummary(
+       Guid menuId, CancellationToken ct = default)
+   {
+       var result = await items.GetMenuSummaryAsync(menuId, ct);
+       return Ok(ApiResponse<MenuItemSummaryDto>.Ok(result));
    }
 }

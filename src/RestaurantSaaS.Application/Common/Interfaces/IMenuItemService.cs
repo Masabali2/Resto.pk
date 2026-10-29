@@ -9,7 +9,9 @@ public interface IMenuItemService
 
     Task<PagedResult<MenuItemDto>> ListByCategoryAsync(Guid categoryId, int page, int pageSize, CancellationToken ct = default);
 
-    Task<PagedResult<MenuItemDto>> ListByMenuAsync(Guid menuId, int page, int pageSize, CancellationToken ct = default);
+    Task<PagedResult<MenuItemDto>> ListByMenuAsync(Guid menuId, MenuItemListQuery query, CancellationToken ct = default);
+
+    Task<MenuItemSummaryDto> GetMenuSummaryAsync(Guid menuId, CancellationToken ct = default);
 
     Task<MenuItemDto> GetByIdAsync(Guid itemId, CancellationToken ct = default);
 

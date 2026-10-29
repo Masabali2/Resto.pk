@@ -15,11 +15,12 @@ namespace RestaurantSaaS.Api.Tests;
 public sealed class SubscriptionsControllerTests
 {
     private readonly Mock<ITenantSubscriptionService> _subscriptions = new();
+    private readonly Mock<ISubscriptionPlanService> _plans = new();
     private readonly SubscriptionsController _controller;
 
     public SubscriptionsControllerTests()
     {
-        _controller = new SubscriptionsController(_subscriptions.Object);
+        _controller = new SubscriptionsController(_subscriptions.Object, _plans.Object);
     }
 
     private static CurrentSubscriptionStateDto State() => new(
@@ -105,6 +106,7 @@ public sealed class SubscriptionsControllerTests
         {
             new(
                 Guid.NewGuid(),
+                "free-trial",
                 "Free Trial",
                 "30-day free trial.",
                 0m,
@@ -133,5 +135,90 @@ public sealed class SubscriptionsControllerTests
 
         envelope.Data.Should().HaveCount(1);
         envelope.Data![0].Name.Should().Be("Free Trial");
+    }
+
+    [Fact]
+    public async Task PublicPlans_RequestsActivePlansOnly()
+    {
+        _plans
+            .Setup(x => x.ListAsync(true, 1, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<SubscriptionPlanDto>
+            {
+                Items = [],
+                Page = 1,
+                PageSize = 100,
+                TotalCount = 0
+            });
+
+        var result = await _controller.PublicPlans(CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<OkObjectResult>().Subject;
+        var envelope = ok.Value
+            .Should()
+            .BeOfType<ApiResponse<IReadOnlyList<SubscriptionPlanDto>>>()
+            .Subject;
+
+        envelope.Success.Should().BeTrue();
+        envelope.Data.Should().BeEmpty();
+        _plans.Verify(x => x.ListAsync(true, 1, 100, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task PublicPlans_ReturnsThePlanItems()
+    {
+        var plans = new List<SubscriptionPlanDto>
+        {
+            new(
+                Guid.NewGuid(),
+                "starter",
+                "Starter",
+                "For new restaurants.",
+                999m,
+                "PKR",
+                "Monthly",
+                1,
+                10,
+                100,
+                true,
+                DateTime.UtcNow,
+                null),
+            new(
+                Guid.NewGuid(),
+                "starter",
+                "Starter",
+                "For new restaurants.",
+                9999m,
+                "PKR",
+                "Yearly",
+                1,
+                10,
+                100,
+                true,
+                DateTime.UtcNow,
+                null)
+        };
+
+        _plans
+            .Setup(x => x.ListAsync(true, 1, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new PagedResult<SubscriptionPlanDto>
+            {
+                Items = plans,
+                Page = 1,
+                PageSize = 100,
+                TotalCount = plans.Count
+            });
+
+        var result = await _controller.PublicPlans(CancellationToken.None);
+
+        var ok = result.Result.Should().BeOfType<OkObjectResult>().Subject;
+        var envelope = ok.Value
+            .Should()
+            .BeOfType<ApiResponse<IReadOnlyList<SubscriptionPlanDto>>>()
+            .Subject;
+
+        envelope.Data.Should().HaveCount(2);
+        envelope.Data![0].Code.Should().Be("starter");
+        envelope.Data[0].Currency.Should().Be("PKR");
+        envelope.Data[1].BillingInterval.Should().Be("Yearly");
     }
 }

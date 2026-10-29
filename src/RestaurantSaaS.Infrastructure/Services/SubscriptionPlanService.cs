@@ -61,9 +61,16 @@ public sealed class SubscriptionPlanService(ApplicationDbContext db) : ISubscrip
         if (exists)
             throw new ConflictException($"A plan named '{request.Name}' already exists.");
 
+        if (!string.IsNullOrWhiteSpace(request.Code) &&
+            await db.SubscriptionPlans.AnyAsync(p => p.Code == request.Code.Trim(), ct))
+        {
+            throw new ConflictException($"A plan with code '{request.Code}' already exists.");
+        }
+
         var money = Money.New(request.Price, request.Currency);
 
         var plan = SubscriptionPlan.Create(
+            request.Code,
             request.Name,
             money,
             interval,
@@ -214,7 +221,7 @@ public sealed class SubscriptionPlanService(ApplicationDbContext db) : ISubscrip
     }
 
     internal static SubscriptionPlanDto ToDtoPublic(SubscriptionPlan p) => new(
-        p.Id, p.Name, p.Description, p.Price, p.Currency, p.BillingInterval.ToString(),
+        p.Id, p.Code, p.Name, p.Description, p.Price, p.Currency, p.BillingInterval.ToString(),
         p.MaxStaff, p.MaxMenuItems, p.MaxOrdersPerMonth, p.IsActive, p.CreatedAt, p.UpdatedAt);
 
     private static SubscriptionPlanDto ToDto(SubscriptionPlan p) => ToDtoPublic(p);

@@ -30,20 +30,30 @@ public sealed class MenuCategoryService(ApplicationDbContext db, TenantAccessGua
        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuCategoryView, ct);
        await LoadOwnedMenuAsync(menuId, tenantId, ct);
 
-       var categories = await db.MenuCategories.AsNoTracking()
+       return await db.MenuCategories.AsNoTracking()
            .Where(c => c.MenuId == menuId)
            .OrderBy(c => c.DisplayOrder)
            .ThenBy(c => c.Name)
+           .Select(c => new MenuCategoryDto(
+               c.Id,
+               c.MenuId,
+               c.Name,
+               c.Description,
+               c.DisplayOrder,
+               c.IsActive,
+               c.CreatedAt,
+               c.UpdatedAt,
+               c.Items.Count))
            .ToListAsync(ct);
-
-       return categories.Select(MenuMapping.ToDto).ToList();
    }
 
    public async Task<MenuCategoryDto> GetByIdAsync(Guid categoryId, CancellationToken ct = default)
    {
        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuCategoryView, ct);
        var category = await LoadOwnedCategoryAsync(categoryId, tenantId, ct);
-       return MenuMapping.ToDto(category);
+       var itemCount = await db.MenuItems.AsNoTracking()
+           .CountAsync(i => i.MenuCategoryId == categoryId, ct);
+       return MenuMapping.ToDto(category, itemCount);
    }
 
    public async Task<MenuCategoryDto> UpdateAsync(Guid categoryId, UpdateMenuCategoryRequest request, CancellationToken ct = default)
@@ -55,7 +65,9 @@ public sealed class MenuCategoryService(ApplicationDbContext db, TenantAccessGua
        if (request.DisplayOrder.HasValue)
            category.SetDisplayOrder(request.DisplayOrder.Value);
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(category);
+       var itemCount = await db.MenuItems.AsNoTracking()
+           .CountAsync(i => i.MenuCategoryId == categoryId, ct);
+       return MenuMapping.ToDto(category, itemCount);
    }
 
    public async Task<MenuCategoryDto> SetActiveAsync(Guid categoryId, bool isActive, CancellationToken ct = default)
@@ -65,7 +77,9 @@ public sealed class MenuCategoryService(ApplicationDbContext db, TenantAccessGua
        category.Menu.EnsureEditable();
        category.SetActive(isActive);
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(category);
+       var itemCount = await db.MenuItems.AsNoTracking()
+           .CountAsync(i => i.MenuCategoryId == categoryId, ct);
+       return MenuMapping.ToDto(category, itemCount);
    }
 
    public async Task<IReadOnlyList<MenuCategoryDto>> ReorderAsync(Guid menuId, ReorderMenuCategoriesRequest request, CancellationToken ct = default)
@@ -103,10 +117,16 @@ public sealed class MenuCategoryService(ApplicationDbContext db, TenantAccessGua
            throw;
        }
 
+       var itemCounts = await db.MenuItems.AsNoTracking()
+           .Where(i => i.Category.MenuId == menuId)
+           .GroupBy(i => i.MenuCategoryId)
+           .Select(group => new { CategoryId = group.Key, Count = group.Count() })
+           .ToDictionaryAsync(x => x.CategoryId, x => x.Count, ct);
+
        return categories
            .OrderBy(c => c.DisplayOrder)
            .ThenBy(c => c.Name)
-           .Select(MenuMapping.ToDto)
+           .Select(c => MenuMapping.ToDto(c, itemCounts.GetValueOrDefault(c.Id)))
            .ToList();
    }
 

@@ -154,6 +154,10 @@ if (app.Environment.IsDevelopment())
     var clock = services.GetRequiredService<IDateTimeProvider>();
 
     await DbSeeder.SeedAsync(db, clock);
+
+    // Development-only demo catalogue for the Menu Management screen. The
+    // seeder owns a dedicated demo tenant and is idempotent.
+    await DemoMenuSeeder.SeedAsync(db);
 }
 
 app.UseSerilogRequestLogging();

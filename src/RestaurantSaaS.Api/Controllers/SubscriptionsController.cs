@@ -17,7 +17,9 @@ namespace RestaurantSaaS.Api.Controllers;
 [ApiController]
 [Authorize]
 [Route("api/subscriptions")]
-public sealed class SubscriptionsController(ITenantSubscriptionService subscriptions) : ControllerBase
+public sealed class SubscriptionsController(
+    ITenantSubscriptionService subscriptions,
+    ISubscriptionPlanService plans) : ControllerBase
 {
     /// <summary>Plans that are currently offered to workspaces.</summary>
     [HttpGet("plans")]
@@ -26,6 +28,22 @@ public sealed class SubscriptionsController(ITenantSubscriptionService subscript
     {
         var result = await subscriptions.ListAvailablePlansAsync(ct);
         return Ok(ApiResponse<IReadOnlyList<SubscriptionPlanDto>>.Ok(result));
+    }
+
+    /// <summary>
+    /// Publicly visible active subscription plans.
+    ///
+    /// This endpoint is intentionally anonymous: visitors browsing public
+    /// pricing must not be required to sign in or select a tenant. It returns
+    /// only plan catalogue data — no tenant, subscription, or payment details.
+    /// </summary>
+    [HttpGet("plans/public")]
+    [AllowAnonymous]
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<SubscriptionPlanDto>>>> PublicPlans(
+        CancellationToken ct)
+    {
+        var page = await plans.ListAsync(onlyActive: true, page: 1, pageSize: 100, ct);
+        return Ok(ApiResponse<IReadOnlyList<SubscriptionPlanDto>>.Ok(page.Items));
     }
 
     /// <summary>

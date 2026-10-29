@@ -31,6 +31,10 @@ public sealed class SubscriptionPlanConfiguration
 
         builder.HasKey(p => p.Id);
 
+        builder.Property(p => p.Code)
+            .IsRequired()
+            .HasMaxLength(100);
+
         builder.Property(p => p.Name)
             .IsRequired()
             .HasMaxLength(100);
@@ -72,6 +76,15 @@ public sealed class SubscriptionPlanConfiguration
         builder.HasIndex(p => p.Name)
             .IsUnique()
             .HasDatabaseName("UX_SubscriptionPlans_Name");
+
+        // A plan code groups the monthly and yearly billing variants of the
+        // same plan (for example `starter` appears once for Monthly and once
+        // for Yearly). Uniqueness is therefore per (code, interval), not per
+        // code alone, so the monthly and yearly variants can coexist while
+        // duplicates of the same code+interval are rejected.
+        builder.HasIndex(p => new { p.Code, p.BillingInterval })
+            .IsUnique()
+            .HasDatabaseName("UX_SubscriptionPlans_Code_BillingInterval");
 
         builder.HasIndex(p => new
         {

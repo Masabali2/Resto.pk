@@ -8,7 +8,8 @@ public sealed record MenuCategoryDto(
     int DisplayOrder,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    int ItemCount = 0);
 
 public sealed record CreateMenuCategoryRequest(string Name, string? Description, int? DisplayOrder);
 

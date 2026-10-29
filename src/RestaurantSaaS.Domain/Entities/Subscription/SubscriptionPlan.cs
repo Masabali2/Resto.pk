@@ -11,6 +11,14 @@ public class SubscriptionPlan : AuditableEntity
     public string Name { get; private set; } = null!;
     public string? Description { get; private set; }
 
+    /// <summary>
+    /// Stable, user-facing plan code used to group the monthly and yearly
+    /// billing variants of the same plan (for example `starter`). Names must
+    /// stay unique, but codes are what the public catalogue and the client
+    /// use to pair a plan's monthly and yearly prices.
+    /// </summary>
+    public string Code { get; private set; } = null!;
+
     public decimal Price { get; private set; }
     public string Currency { get; private set; } = Money.DefaultCurrency;
 
@@ -27,6 +35,7 @@ public class SubscriptionPlan : AuditableEntity
     }
 
     public static SubscriptionPlan Create(
+        string code,
         string name,
         Money price,
         BillingInterval billingInterval,
@@ -35,6 +44,16 @@ public class SubscriptionPlan : AuditableEntity
         int maxOrdersPerMonth,
         string? description = null)
     {
+        if (string.IsNullOrWhiteSpace(code))
+            throw new DomainException(
+                "PLAN_CODE_REQUIRED",
+                "Plan code is required.");
+
+        if (code.Trim().Length > 100)
+            throw new DomainException(
+                "PLAN_CODE_TOO_LONG",
+                "Plan code cannot exceed 100 characters.");
+
         if (string.IsNullOrWhiteSpace(name))
             throw new DomainException(
                 "PLAN_NAME_REQUIRED",
@@ -61,6 +80,7 @@ public class SubscriptionPlan : AuditableEntity
 
         return new SubscriptionPlan
         {
+            Code = code.Trim(),
             Name = name.Trim(),
             Description = string.IsNullOrWhiteSpace(description)
                 ? null

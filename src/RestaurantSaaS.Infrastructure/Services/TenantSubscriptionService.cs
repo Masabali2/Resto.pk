@@ -413,7 +413,10 @@ public sealed class TenantSubscriptionService(
             subscription.IsEntitled(DateTime.UtcNow),
             subscription.Plan.MaxStaff,
             subscription.Plan.MaxMenuItems,
-            subscription.Plan.MaxOrdersPerMonth);
+            subscription.Plan.MaxOrdersPerMonth,
+            subscription.Plan.Price,
+            subscription.Plan.Currency,
+            subscription.Plan.BillingInterval.ToString());
     }
 
     private async Task<Subscription?> LoadLatestAsync(Guid tenantId, bool track, CancellationToken ct)

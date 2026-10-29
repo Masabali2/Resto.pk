@@ -121,6 +121,7 @@ internal static class TestFactory
     public static async Task<SubscriptionPlan> AddTrialPlanAsync(Fixture fx)
     {
         var plan = SubscriptionPlan.Create(
+            "free-trial",
             SubscriptionTrialPolicy.TrialPlanName,
             Money.Zero(),
             BillingInterval.Monthly,
