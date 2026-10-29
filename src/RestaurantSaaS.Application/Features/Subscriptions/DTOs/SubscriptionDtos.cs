@@ -4,6 +4,7 @@ namespace RestaurantSaaS.Application.Features.Subscriptions.DTOs;
 
 public sealed record SubscriptionPlanDto(
     Guid Id,
+    string Code,
     string Name,
     string? Description,
     decimal Price,
@@ -17,6 +18,7 @@ public sealed record SubscriptionPlanDto(
     DateTime? UpdatedAt);
 
 public sealed record CreateSubscriptionPlanRequest(
+    string Code,
     string Name,
     string? Description,
     decimal Price,
@@ -55,7 +57,10 @@ public sealed record TenantSubscriptionSummaryDto(
     bool IsEntitled,
     int MaxStaff,
     int MaxMenuItems,
-    int MaxOrdersPerMonth);
+    int MaxOrdersPerMonth,
+    decimal Price,
+    string Currency,
+    string BillingInterval);
 
 /// <summary>
 /// Whether the active workspace may still consume its free trial.

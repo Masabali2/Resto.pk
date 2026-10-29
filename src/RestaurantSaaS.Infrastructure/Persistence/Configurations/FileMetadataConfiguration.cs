@@ -46,6 +46,10 @@ public sealed class FileMetadataConfiguration
             .HasMaxLength(FileMetadata.MaxStorageProviderLength)
             .HasDefaultValue("local");
 
+        builder.Property(f => f.Width).IsRequired(false);
+
+        builder.Property(f => f.Height).IsRequired(false);
+
         builder.Property(f => f.CreatedAt)
             .IsRequired();
 

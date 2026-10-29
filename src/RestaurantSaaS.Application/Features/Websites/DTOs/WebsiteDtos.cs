@@ -65,6 +65,13 @@ public sealed record CreateWebsiteRequest(Guid RestaurantId, Guid WebsiteTemplat
 
 public sealed record UpdateWebsiteRequest(string? Name, string? Slug, Guid? WebsiteTemplateId);
 
+/// <summary>Saved draft configuration for editing a website.</summary>
+public sealed record WebsiteDraftDto(
+    Guid WebsiteId,
+    bool HasDraft,
+    string? ConfigurationJson,
+    int? Version);
+
 /// <summary>Save/replace the DRAFT configuration. Never affects what the public sees.</summary>
 public sealed record SaveWebsiteDraftRequest(string ConfigurationJson);
 

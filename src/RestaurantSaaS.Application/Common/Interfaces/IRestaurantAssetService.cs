@@ -18,7 +18,12 @@ public interface IRestaurantAssetService
         string contentType,
         CancellationToken ct = default);
 
-    Task DeleteAsync(Guid restaurantId, Guid assetId, CancellationToken ct = default);
+    /// <summary>
+    /// Deletes an asset when it is no longer referenced. Returns true when
+    /// deleted, false when the asset is still referenced and must not be
+    /// deleted. Throws NotFoundException when the asset does not exist.
+    /// </summary>
+    Task<bool> DeleteAsync(Guid restaurantId, Guid assetId, CancellationToken ct = default);
 
     Task<IReadOnlyList<PublicRestaurantAssetDto>> GetPublicAssetsAsync(
         Guid restaurantId,
@@ -27,4 +32,7 @@ public interface IRestaurantAssetService
     Task<IReadOnlyList<PublicRestaurantAssetDto>> GetPublicAssetsBySlugAsync(
         string slug,
         CancellationToken ct = default);
+
+    /// <summary>Authoritative storage usage for a restaurant.</summary>
+    Task<StorageUsageDto> GetStorageUsageAsync(Guid restaurantId, CancellationToken ct = default);
 }

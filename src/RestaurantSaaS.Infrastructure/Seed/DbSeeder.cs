@@ -105,35 +105,120 @@ public static class DbSeeder
     }
 
     /// <summary>
-    /// Seeds the subscription plan that backs the 30-day free trial.
+    /// Seeds the approved subscription plan catalogue.
     ///
-    /// Only the free trial plan is seeded. It carries a price of 0 (it is
-    /// free by definition), and no paid plan is invented here — the paid
-    /// catalogue is created by platform administrators through the existing
-    /// plan endpoints, so the product never shows a price that was not
-    /// deliberately configured.
+    /// Each plan is matched by its name, so re-running the seeder never
+    /// creates duplicates and never overwrites plans that platform
+    /// administrators created or edited through the plan endpoints. Plans
+    /// that are missing are inserted; plans that already exist are left
+    /// untouched. Every price is a configured value in PKR — nothing is
+    /// computed from another price, and no price is zero unless the plan is
+    /// genuinely free (the free trial).
     /// </summary>
     private static async Task SeedSubscriptionPlansAsync(
         ApplicationDbContext db)
     {
-        var existing = await db.SubscriptionPlans
+        var existingNames = await db.SubscriptionPlans
             .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(
-                plan => plan.Name == SubscriptionTrialPolicy.TrialPlanName);
+            .Select(plan => plan.Name)
+            .ToHashSetAsync();
 
-        if (existing is not null)
+        var plans = new[]
         {
-            return;
-        }
+            // Free trial — genuinely free, no payment required.
+            (
+                Code: "free-trial",
+                Name: SubscriptionTrialPolicy.TrialPlanName,
+                Price: 0m,
+                Interval: BillingInterval.Monthly,
+                MaxStaff: 5,
+                MaxMenuItems: 100,
+                MaxOrdersPerMonth: 500,
+                Description: "30-day free trial for a new Resto.pk workspace."
+            ),
+            // Starter — monthly and yearly variants share the stable code.
+            (
+                Code: "starter",
+                Name: "Starter",
+                Price: 1499m,
+                Interval: BillingInterval.Monthly,
+                MaxStaff: 3,
+                MaxMenuItems: 50,
+                MaxOrdersPerMonth: 500,
+                Description: "Ideal for a single restaurant getting started."
+            ),
+            (
+                Code: "starter",
+                Name: "Starter Yearly",
+                Price: 14990m,
+                Interval: BillingInterval.Yearly,
+                MaxStaff: 3,
+                MaxMenuItems: 50,
+                MaxOrdersPerMonth: 500,
+                Description: "Ideal for a single restaurant getting started."
+            ),
+            // Professional.
+            (
+                Code: "professional",
+                Name: "Professional",
+                Price: 3999m,
+                Interval: BillingInterval.Monthly,
+                MaxStaff: 10,
+                MaxMenuItems: 200,
+                MaxOrdersPerMonth: 2000,
+                Description: "For growing restaurants with multiple locations."
+            ),
+            (
+                Code: "professional",
+                Name: "Professional Yearly",
+                Price: 39990m,
+                Interval: BillingInterval.Yearly,
+                MaxStaff: 10,
+                MaxMenuItems: 200,
+                MaxOrdersPerMonth: 2000,
+                Description: "For growing restaurants with multiple locations."
+            ),
+            // Business.
+            (
+                Code: "business",
+                Name: "Business",
+                Price: 7999m,
+                Interval: BillingInterval.Monthly,
+                MaxStaff: 0,
+                MaxMenuItems: 0,
+                MaxOrdersPerMonth: 0,
+                Description: "For established restaurant groups."
+            ),
+            (
+                Code: "business",
+                Name: "Business Yearly",
+                Price: 79990m,
+                Interval: BillingInterval.Yearly,
+                MaxStaff: 0,
+                MaxMenuItems: 0,
+                MaxOrdersPerMonth: 0,
+                Description: "For established restaurant groups."
+            ),
+        };
 
-        db.SubscriptionPlans.Add(SubscriptionPlan.Create(
-            SubscriptionTrialPolicy.TrialPlanName,
-            Money.Zero(),
-            BillingInterval.Monthly,
-            maxStaff: 5,
-            maxMenuItems: 100,
-            maxOrdersPerMonth: 500,
-            description: "30-day free trial for a new Resto.pk workspace."));
+        foreach (var (code, name, price, interval, maxStaff,
+                     maxMenuItems, maxOrdersPerMonth, description) in plans)
+        {
+            if (existingNames.Contains(name))
+            {
+                continue;
+            }
+
+            db.SubscriptionPlans.Add(SubscriptionPlan.Create(
+                code,
+                name,
+                Money.New(price, "PKR"),
+                interval,
+                maxStaff: maxStaff,
+                maxMenuItems: maxMenuItems,
+                maxOrdersPerMonth: maxOrdersPerMonth,
+                description: description));
+        }
 
         await db.SaveChangesAsync();
     }

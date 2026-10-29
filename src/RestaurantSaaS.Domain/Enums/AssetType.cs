@@ -10,5 +10,8 @@ public enum AssetType
     MobileLogo = 5,
     MenuItemImage = 6,
     TemplatePreview = 7,
+    DarkLogo = 8,
+    OGBanner = 9,
+    HeroBanner = 10,
     Other = 99
 }

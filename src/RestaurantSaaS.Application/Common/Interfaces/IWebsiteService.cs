@@ -40,6 +40,9 @@ public interface IWebsiteService
     Task<WebsiteDto> GetByIdAsync(Guid id, CancellationToken ct = default);
     Task<WebsiteDto> UpdateAsync(Guid id, UpdateWebsiteRequest request, CancellationToken ct = default);
 
+    /// <summary>Reads the tenant's saved DRAFT configuration for editing.</summary>
+    Task<WebsiteDraftDto> GetDraftAsync(Guid id, CancellationToken ct = default);
+
     /// <summary>Saves/replaces the draft version. Anonymous visitors keep seeing the current published version.</summary>
     Task<WebsiteDto> SaveDraftAsync(Guid id, SaveWebsiteDraftRequest request, CancellationToken ct = default);
 

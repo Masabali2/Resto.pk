@@ -24,6 +24,12 @@ public class FileMetadata : BaseEntity
 
     public string StorageProvider { get; private set; } = "local";
 
+    /// <summary>Image width in pixels, when the uploaded file is a decodable raster image.</summary>
+    public int? Width { get; private set; }
+
+    /// <summary>Image height in pixels, when the uploaded file is a decodable raster image.</summary>
+    public int? Height { get; private set; }
+
     public DateTime CreatedAt { get; private set; }
 
     public DateTime? DeletedAt { get; private set; }
@@ -38,13 +44,16 @@ public class FileMetadata : BaseEntity
         string storageKey,
         string contentType,
         long fileSize,
-        string storageProvider)
+        string storageProvider,
+        int? width = null,
+        int? height = null)
     {
         ValidateFileName(fileName);
         ValidateStorageKey(storageKey);
         ValidateContentType(contentType);
         ValidateFileSize(fileSize);
         ValidateStorageProvider(storageProvider);
+        ValidateDimensions(width, height);
 
         if (tenantId == Guid.Empty)
             throw new DomainException(
@@ -59,6 +68,8 @@ public class FileMetadata : BaseEntity
             ContentType = contentType.Trim().ToLowerInvariant(),
             FileSize = fileSize,
             StorageProvider = storageProvider.Trim().ToLowerInvariant(),
+            Width = width,
+            Height = height,
             CreatedAt = DateTime.UtcNow
         };
     }
@@ -143,6 +154,19 @@ public class FileMetadata : BaseEntity
             throw new DomainException(
                 "FILE_STORAGE_PROVIDER_TOO_LONG",
                 $"Storage provider cannot exceed {MaxStorageProviderLength} characters.");
+    }
+
+    private static void ValidateDimensions(int? width, int? height)
+    {
+        if (width.HasValue && width.Value <= 0)
+            throw new DomainException(
+                "FILE_IMAGE_WIDTH_INVALID",
+                "Image width must be greater than zero.");
+
+        if (height.HasValue && height.Value <= 0)
+            throw new DomainException(
+                "FILE_IMAGE_HEIGHT_INVALID",
+                "Image height must be greater than zero.");
     }
 }
 

@@ -34,7 +34,8 @@ public static class WebsiteConfigSchema
 
     public static readonly IReadOnlySet<string> FontFamilies = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
-        "system-ui", "serif", "sans-serif", "monospace", "poppins", "inter", "roboto", "playfair-display"
+        "system-ui", "serif", "sans-serif", "monospace", "poppins", "inter", "roboto", "playfair-display",
+        "plus-jakarta-sans", "outfit"
     };
 
     private static readonly HashSet<string> AllowedTopLevel = new(StringComparer.Ordinal)

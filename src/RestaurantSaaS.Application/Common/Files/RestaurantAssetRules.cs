@@ -10,9 +10,12 @@ public static class RestaurantAssetRules
     private static readonly HashSet<AssetType> AllowedTypes =
     [
         AssetType.Logo,
+        AssetType.DarkLogo,
         AssetType.Favicon,
+        AssetType.OGBanner,
         AssetType.CoverImage,
         AssetType.Banner,
+        AssetType.HeroBanner,
         AssetType.MobileLogo
     ];
 

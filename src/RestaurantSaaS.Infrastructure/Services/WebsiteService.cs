@@ -113,6 +113,24 @@ public sealed class WebsiteService(
         return await ToDtoAsync(id, ct);
     }
 
+    public async Task<WebsiteDraftDto> GetDraftAsync(Guid id, CancellationToken ct = default)
+    {
+        await RequirePermissionAsync(Permissions.WebsiteView, requireActiveTenant: false, ct);
+        await LoadOwnedAsync(id, ct); // ownership validation even for reads
+
+        var draft = await db.WebsiteConfigurations
+            .AsNoTracking()
+            .Where(c => c.WebsiteId == id && c.IsDraft)
+            .Select(c => new WebsiteDraftDto(
+                c.WebsiteId,
+                true,
+                c.ConfigurationJson,
+                c.ConfigurationVersion))
+            .FirstOrDefaultAsync(ct);
+
+        return draft ?? new WebsiteDraftDto(id, false, null, null);
+    }
+
     public async Task<WebsiteDto> UpdateAsync(Guid id, UpdateWebsiteRequest request, CancellationToken ct = default)
     {
         await RequirePermissionAsync(Permissions.WebsiteUpdate, requireActiveTenant: true, ct);

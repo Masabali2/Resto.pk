@@ -53,7 +53,24 @@ public sealed class RestaurantAssetsController(IRestaurantAssetService assets) :
         Guid assetId,
         CancellationToken ct)
     {
-        await assets.DeleteAsync(restaurantId, assetId, ct);
-        return Ok(ApiResponse<object?>.Ok(null));
+        var deleted = await assets.DeleteAsync(restaurantId, assetId, ct);
+        if (!deleted)
+        {
+            return Conflict(ApiResponse<object>.Fail("ASSET_STILL_REFERENCED",
+                "The asset is still referenced by a website configuration and cannot be deleted."));
+        }
+
+        return NoContent();
+    }
+
+    /// <summary>Reads authoritative storage usage for the restaurant. Quota is unavailable when no policy exists.</summary>
+    [HttpGet("storage")]
+    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.RestaurantView)]
+    public async Task<ActionResult<ApiResponse<StorageUsageDto>>> Storage(
+        Guid restaurantId,
+        CancellationToken ct)
+    {
+        var usage = await assets.GetStorageUsageAsync(restaurantId, ct);
+        return Ok(ApiResponse<StorageUsageDto>.Ok(usage));
     }
 }

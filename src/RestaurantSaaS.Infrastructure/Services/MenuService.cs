@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Models;
+using RestaurantSaaS.Application.Features.MenuCategories.DTOs;
 using RestaurantSaaS.Application.Features.Menus.DTOs;
 using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Enums;
@@ -51,12 +52,38 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuView, ct);
 
        var menu = await db.Menus.AsNoTracking()
-           .Include(m => m.Categories)
            .FirstOrDefaultAsync(m => m.Id == menuId, ct)
            ?? throw new NotFoundException("Menu", menuId);
 
        EnsureOwned(menu, tenantId);
-       return MenuMapping.ToDetailsDto(menu);
+
+       var categories = await db.MenuCategories.AsNoTracking()
+           .Where(c => c.MenuId == menuId)
+           .OrderBy(c => c.DisplayOrder)
+           .ThenBy(c => c.Name)
+           .Select(c => new MenuCategoryDto(
+               c.Id,
+               c.MenuId,
+               c.Name,
+               c.Description,
+               c.DisplayOrder,
+               c.IsActive,
+               c.CreatedAt,
+               c.UpdatedAt,
+               c.Items.Count))
+           .ToListAsync(ct);
+
+       return new MenuDetailsDto(
+           menu.Id,
+           menu.TenantId,
+           menu.RestaurantId,
+           menu.Name,
+           menu.Description,
+           menu.IsActive,
+           menu.Status.ToString(),
+           menu.CreatedAt,
+           menu.UpdatedAt,
+           categories);
    }
 
    public async Task<MenuDto> UpdateAsync(Guid menuId, UpdateMenuRequest request, CancellationToken ct = default)

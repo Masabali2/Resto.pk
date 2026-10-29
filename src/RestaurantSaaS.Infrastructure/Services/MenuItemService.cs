@@ -29,7 +29,7 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
        var item = MenuItem.Create(category.Id, request.Name, price, request.Description, request.ImageFileId, displayOrder);
        db.MenuItems.Add(item);
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(item, category.MenuId);
+       return MenuMapping.ToDto(item, category.MenuId, category.Name);
    }
 
    public async Task<PagedResult<MenuItemDto>> ListByCategoryAsync(Guid categoryId, int page, int pageSize, CancellationToken ct = default)
@@ -50,45 +50,159 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
 
        return new PagedResult<MenuItemDto>
        {
-           Items = items.Select(i => MenuMapping.ToDto(i, category.MenuId)).ToList(),
+           Items = items.Select(i => MenuMapping.ToDto(i, category.MenuId, category.Name)).ToList(),
            Page = page,
            PageSize = pageSize,
            TotalCount = total
        };
    }
 
-   public async Task<PagedResult<MenuItemDto>> ListByMenuAsync(Guid menuId, int page, int pageSize, CancellationToken ct = default)
+   public async Task<PagedResult<MenuItemDto>> ListByMenuAsync(Guid menuId, MenuItemListQuery query, CancellationToken ct = default)
    {
        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuItemView, ct);
        await LoadOwnedMenuAsync(menuId, tenantId, ct);
 
-       page = Math.Max(1, page);
-       pageSize = Math.Clamp(pageSize, 1, 100);
+       var page = Math.Max(1, query.Page);
+       var pageSize = Math.Clamp(query.PageSize <= 0 ? 20 : query.PageSize, 1, 100);
 
-       var query = db.MenuItems.AsNoTracking()
-           .Include(i => i.Category)
-           .Where(i => i.Category.MenuId == menuId)
-           .OrderBy(i => i.Category.DisplayOrder)
-           .ThenBy(i => i.DisplayOrder)
-           .ThenBy(i => i.Name);
+       var itemsQuery = db.MenuItems.AsNoTracking()
+           .Where(i => i.Category.MenuId == menuId);
 
-       var total = await query.CountAsync(ct);
-       var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+       var search = query.Search?.Trim();
+       if (!string.IsNullOrEmpty(search))
+       {
+           itemsQuery = itemsQuery.Where(i =>
+               i.Name.Contains(search) ||
+               (i.Description != null && i.Description.Contains(search)));
+       }
+
+       if (query.CategoryId is { } categoryId)
+           itemsQuery = itemsQuery.Where(i => i.MenuCategoryId == categoryId);
+
+       if (query.IsAvailable is { } isAvailable)
+           itemsQuery = itemsQuery.Where(i => i.IsAvailable == isAvailable);
+
+       var descending = string.Equals(
+           query.SortDirection?.Trim(),
+           "desc",
+           StringComparison.OrdinalIgnoreCase);
+
+       itemsQuery = (query.SortBy?.Trim().ToLowerInvariant(), descending) switch
+       {
+           ("name", false) => itemsQuery
+               .OrderBy(i => i.Name)
+               .ThenBy(i => i.Id),
+           ("name", true) => itemsQuery
+               .OrderByDescending(i => i.Name)
+               .ThenBy(i => i.Id),
+           ("price", false) => itemsQuery
+               .OrderBy(i => i.Price)
+               .ThenBy(i => i.Name)
+               .ThenBy(i => i.Id),
+           ("price", true) => itemsQuery
+               .OrderByDescending(i => i.Price)
+               .ThenBy(i => i.Name)
+               .ThenBy(i => i.Id),
+           ("createdat", false) => itemsQuery
+               .OrderBy(i => i.CreatedAt)
+               .ThenBy(i => i.Id),
+           ("createdat", true) => itemsQuery
+               .OrderByDescending(i => i.CreatedAt)
+               .ThenBy(i => i.Id),
+           ("updatedat", false) => itemsQuery
+               .OrderBy(i => i.UpdatedAt ?? i.CreatedAt)
+               .ThenBy(i => i.Id),
+           ("updatedat", true) => itemsQuery
+               .OrderByDescending(i => i.UpdatedAt ?? i.CreatedAt)
+               .ThenBy(i => i.Id),
+           _ => itemsQuery
+               .OrderBy(i => i.Category.DisplayOrder)
+               .ThenBy(i => i.DisplayOrder)
+               .ThenBy(i => i.Name)
+               .ThenBy(i => i.Id)
+       };
+
+       var total = await itemsQuery.CountAsync(ct);
+       var rows = await itemsQuery
+           .Skip((page - 1) * pageSize)
+           .Take(pageSize)
+           .Select(i => new
+           {
+               Item = new MenuItemDto(
+                   i.Id,
+                   i.MenuCategoryId,
+                   i.Category.MenuId,
+                   i.Name,
+                   i.Description,
+                   i.Price,
+                   i.Currency,
+                   i.ImageFileId,
+                   i.DisplayOrder,
+                   i.IsAvailable,
+                   i.IsActive,
+                   i.CreatedAt,
+                   i.UpdatedAt,
+                   i.Category.Name),
+               StorageKey = i.ImageFileId == null
+                   ? null
+                   : db.Files
+                       .Where(f => f.Id == i.ImageFileId)
+                       .Select(f => f.StorageKey)
+                       .FirstOrDefault()
+           })
+           .ToListAsync(ct);
+
+       var items = rows
+           .Select(row => row.Item with
+           {
+               ImageUrl = string.IsNullOrWhiteSpace(row.StorageKey)
+                   ? null
+                   : $"/api/v1/files/{Uri.EscapeDataString(row.StorageKey)}"
+           })
+           .ToList();
 
        return new PagedResult<MenuItemDto>
        {
-           Items = items.Select(i => MenuMapping.ToDto(i, i.Category.MenuId)).ToList(),
+           Items = items,
            Page = page,
            PageSize = pageSize,
            TotalCount = total
        };
+   }
+
+   public async Task<MenuItemSummaryDto> GetMenuSummaryAsync(Guid menuId, CancellationToken ct = default)
+   {
+       var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuItemView, ct);
+       await LoadOwnedMenuAsync(menuId, tenantId, ct);
+
+       var counts = await db.MenuItems.AsNoTracking()
+           .Where(i => i.Category.MenuId == menuId)
+           .GroupBy(_ => 1)
+           .Select(group => new
+           {
+               Total = group.Count(),
+               Available = group.Count(i => i.IsAvailable)
+           })
+           .FirstOrDefaultAsync(ct);
+
+       var categoryCount = await db.MenuCategories.AsNoTracking()
+           .CountAsync(c => c.MenuId == menuId, ct);
+
+       var total = counts?.Total ?? 0;
+       var available = counts?.Available ?? 0;
+
+       return new MenuItemSummaryDto(
+           total,
+           available,
+           total - available,
+           categoryCount);
    }
 
    public async Task<MenuItemDto> GetByIdAsync(Guid itemId, CancellationToken ct = default)
    {
        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuItemView, ct);
        var item = await LoadOwnedItemAsync(itemId, tenantId, ct, track: false);
-       return MenuMapping.ToDto(item, item.Category.MenuId);
+       return MenuMapping.ToDto(item, item.Category.MenuId, item.Category.Name);
    }
 
    public async Task<MenuItemDto> UpdateAsync(Guid itemId, UpdateMenuItemRequest request, CancellationToken ct = default)
@@ -115,7 +229,7 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
        }
 
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(item, item.Category.MenuId);
+       return MenuMapping.ToDto(item, item.Category.MenuId, item.Category.Name);
    }
 
    public async Task<MenuItemDto> SetAvailabilityAsync(Guid itemId, bool isAvailable, CancellationToken ct = default)
@@ -124,7 +238,7 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
        var item = await LoadOwnedItemAsync(itemId, tenantId, ct);
        item.SetAvailability(isAvailable);
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(item, item.Category.MenuId);
+       return MenuMapping.ToDto(item, item.Category.MenuId, item.Category.Name);
    }
 
    public async Task<MenuItemDto> SetActiveAsync(Guid itemId, bool isActive, CancellationToken ct = default)
@@ -134,7 +248,7 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
        item.Category.Menu.EnsureEditable();
        item.SetActive(isActive);
        await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(item, item.Category.MenuId);
+       return MenuMapping.ToDto(item, item.Category.MenuId, item.Category.Name);
    }
 
    public async Task SoftDeleteAsync(Guid itemId, CancellationToken ct = default)

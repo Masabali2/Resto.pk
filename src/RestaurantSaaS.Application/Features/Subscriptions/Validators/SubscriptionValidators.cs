@@ -8,6 +8,7 @@ public sealed class CreateSubscriptionPlanRequestValidator : AbstractValidator<C
 {
     public CreateSubscriptionPlanRequestValidator()
     {
+        RuleFor(x => x.Code).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Name).NotEmpty().MaximumLength(100);
         RuleFor(x => x.Description).MaximumLength(1000);
         RuleFor(x => x.Price).GreaterThanOrEqualTo(0);

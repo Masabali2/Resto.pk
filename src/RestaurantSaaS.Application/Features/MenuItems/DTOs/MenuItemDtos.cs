@@ -13,7 +13,34 @@ public sealed record MenuItemDto(
     bool IsAvailable,
     bool IsActive,
     DateTime CreatedAt,
-    DateTime? UpdatedAt);
+    DateTime? UpdatedAt,
+    string? CategoryName = null,
+    string? ImageUrl = null);
+
+/// <summary>
+/// Menu-item dashboard totals. Calculated in one aggregate query so the
+/// stat cards never depend on the current page of results.
+/// </summary>
+public sealed record MenuItemSummaryDto(
+    int TotalItems,
+    int AvailableItems,
+    int UnavailableItems,
+    int CategoryCount);
+
+/// <summary>
+/// Server-side list contract for the menu management screen. Every filter is
+/// optional; paging and sorting are whitelisted in the service layer.
+/// </summary>
+public sealed record MenuItemListQuery
+{
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 20;
+    public string? Search { get; init; }
+    public Guid? CategoryId { get; init; }
+    public bool? IsAvailable { get; init; }
+    public string? SortBy { get; init; }
+    public string? SortDirection { get; init; }
+}
 
 public sealed record CreateMenuItemRequest(
     string Name,

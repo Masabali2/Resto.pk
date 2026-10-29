@@ -38,6 +38,11 @@ public sealed class WebsitesController(IWebsiteService websites) : ControllerBas
     public async Task<ActionResult<ApiResponse<WebsiteDto>>> GetById(Guid id, CancellationToken ct)
         => Ok(ApiResponse<WebsiteDto>.Ok(await websites.GetByIdAsync(id, ct)));
 
+    /// <summary>Reads the tenant's saved DRAFT configuration for editing.</summary>
+    [HttpGet("{id:guid}/draft")]
+    public async Task<ActionResult<ApiResponse<WebsiteDraftDto>>> GetDraft(Guid id, CancellationToken ct)
+        => Ok(ApiResponse<WebsiteDraftDto>.Ok(await websites.GetDraftAsync(id, ct)));
+
     [HttpPut("{id:guid}")]
     public async Task<ActionResult<ApiResponse<WebsiteDto>>> Update(Guid id, [FromBody] UpdateWebsiteRequest request, CancellationToken ct)
         => Ok(ApiResponse<WebsiteDto>.Ok(await websites.UpdateAsync(id, request, ct)));
