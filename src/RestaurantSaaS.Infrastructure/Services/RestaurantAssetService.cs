@@ -8,6 +8,7 @@ using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Persistence;
+using System.Text.Json;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
@@ -22,9 +23,12 @@ public sealed class RestaurantAssetService(
     private static readonly Dictionary<string, AssetType> AssetTypeNames = new(StringComparer.OrdinalIgnoreCase)
     {
         ["logo"] = AssetType.Logo,
+        ["darklogo"] = AssetType.DarkLogo,
         ["favicon"] = AssetType.Favicon,
+        ["ogbanner"] = AssetType.OGBanner,
         ["coverimage"] = AssetType.CoverImage,
         ["banner"] = AssetType.Banner,
+        ["herobanner"] = AssetType.HeroBanner,
         ["mobilelogo"] = AssetType.MobileLogo
     };
 
@@ -148,7 +152,7 @@ public sealed class RestaurantAssetService(
         }
     }
 
-    public async Task DeleteAsync(Guid restaurantId, Guid assetId, CancellationToken ct = default)
+    public async Task<bool> DeleteAsync(Guid restaurantId, Guid assetId, CancellationToken ct = default)
     {
         var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantUpdate, ct);
 
@@ -163,6 +167,12 @@ public sealed class RestaurantAssetService(
         if (!asset.IsActive)
             throw new NotFoundException("RestaurantAsset", assetId);
 
+        // Never delete an asset that is still referenced by a website
+        // configuration (draft or published). Reference checks are server-side
+        // and tenant-aware; client-supplied ownership is never trusted.
+        if (await IsReferencedByWebsiteAsync(restaurantId, assetId, ct))
+            return false;
+
         var storageKey = await GetStorageKeyAsync(asset.FileId, ct);
 
         asset.SetActive(false);
@@ -174,6 +184,96 @@ public sealed class RestaurantAssetService(
         await db.SaveChangesAsync(ct);
 
         await TryDeletePhysicalFileAsync(storageKey);
+
+        return true;
+    }
+
+    /// <summary>Total stored bytes for active assets of a restaurant, counting each file once.</summary>
+    public async Task<StorageUsageDto> GetStorageUsageAsync(Guid restaurantId, CancellationToken ct = default)
+    {
+        var tenantId = await GetActiveTenantIdAsync(Permissions.RestaurantView, ct);
+
+        await EnsureRestaurantOwnershipAsync(restaurantId, ct);
+
+        var fileIds = await db.RestaurantAssets
+            .AsNoTracking()
+            .Where(a => a.RestaurantId == restaurantId && a.IsActive)
+            .Select(a => a.FileId)
+            .Distinct()
+            .ToListAsync(ct);
+
+        var usedBytes = await db.Files
+            .AsNoTracking()
+            .Where(f => fileIds.Contains(f.Id) && f.TenantId == tenantId && f.DeletedAt == null)
+            .SumAsync(f => (long?)f.FileSize, ct) ?? 0;
+
+        // No authoritative storage quota policy exists in V1. Quota is reported
+        // as unavailable (null) so callers never fabricate a limit.
+        return new StorageUsageDto(usedBytes, null);
+    }
+
+    private async Task<bool> IsReferencedByWebsiteAsync(
+        Guid restaurantId,
+        Guid assetId,
+        CancellationToken ct)
+    {
+        var tenantId = tenantContext.GetRequiredTenantId();
+        var target = assetId.ToString();
+
+        var configs = await db.WebsiteConfigurations
+            .AsNoTracking()
+            .Join(db.Websites,
+                c => c.WebsiteId,
+                w => w.Id,
+                (c, w) => new { c.ConfigurationJson, w.RestaurantId, w.TenantId })
+            .Where(x => x.RestaurantId == restaurantId && x.TenantId == tenantId)
+            .Select(x => x.ConfigurationJson)
+            .ToListAsync(ct);
+
+        return configs.Any(json => ContainsGuidReference(json, target));
+    }
+
+    private static bool ContainsGuidReference(string json, string target)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return false;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return ContainsGuidReference(doc.RootElement, target);
+        }
+        catch
+        {
+            // Configuration JSON is validated on save; treat an unparseable
+            // document as not referencing the asset rather than blocking deletion.
+            return false;
+        }
+    }
+
+    private static bool ContainsGuidReference(JsonElement element, string target)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+                foreach (var property in element.EnumerateObject())
+                    if (ContainsGuidReference(property.Value, target))
+                        return true;
+                break;
+
+            case JsonValueKind.Array:
+                foreach (var item in element.EnumerateArray())
+                    if (ContainsGuidReference(item, target))
+                        return true;
+                break;
+
+            case JsonValueKind.String:
+                if (element.GetString() == target)
+                    return true;
+                break;
+        }
+
+        return false;
     }
 
     public async Task<IReadOnlyList<PublicRestaurantAssetDto>> GetPublicAssetsAsync(

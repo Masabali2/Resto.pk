@@ -55,7 +55,7 @@ public sealed class LocalFileStorageService(IConfiguration configuration) : IFil
     }
 
     public string GetPresignedUrl(string storageKey, TimeSpan expiration) =>
-        $"/api/files/{Uri.EscapeDataString(storageKey)}?exp={(int)expiration.TotalSeconds}";
+        $"/api/v1/files/{Uri.EscapeDataString(storageKey)}?exp={(int)expiration.TotalSeconds}";
 
     private string BuildKey(Guid? tenantId, string safeFileName) =>
         tenantId is null
