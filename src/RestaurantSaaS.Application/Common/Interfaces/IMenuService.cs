@@ -11,6 +11,18 @@ public interface IMenuService
 
    Task<MenuDetailsDto> GetByIdAsync(Guid menuId, CancellationToken ct = default);
 
+   /// <summary>
+   /// Returns the approved platform default menu (the seeded demo catalogue)
+   /// with its categories and dishes. Read-only for every tenant.
+   /// </summary>
+   Task<DefaultMenuDetailsDto> GetDefaultAsync(CancellationToken ct = default);
+
+   /// <summary>
+   /// Deep-copies the approved default menu into a restaurant owned by the
+   /// authenticated tenant. The copy starts in Draft status.
+   /// </summary>
+   Task<MenuDto> CopyDefaultAsync(Guid restaurantId, CancellationToken ct = default);
+
    Task<MenuDto> UpdateAsync(Guid menuId, UpdateMenuRequest request, CancellationToken ct = default);
 
    Task<MenuDto> SetActiveAsync(Guid menuId, bool isActive, CancellationToken ct = default);

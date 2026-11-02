@@ -35,6 +35,22 @@ public sealed class MenusController(
        return Ok(ApiResponse<PagedResult<MenuDto>>.Ok(result));
    }
 
+   [HttpGet("menus/default")]
+   [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuView)]
+   public async Task<ActionResult<ApiResponse<DefaultMenuDetailsDto>>> GetDefault(CancellationToken ct)
+   {
+       var result = await menus.GetDefaultAsync(ct);
+       return Ok(ApiResponse<DefaultMenuDetailsDto>.Ok(result));
+   }
+
+   [HttpPost("restaurants/{restaurantId:guid}/menus/copy-default")]
+   [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuCreate)]
+   public async Task<ActionResult<ApiResponse<MenuDto>>> CopyDefault(Guid restaurantId, CancellationToken ct)
+   {
+       var result = await menus.CopyDefaultAsync(restaurantId, ct);
+       return Ok(ApiResponse<MenuDto>.Ok(result));
+   }
+
    [HttpGet("menus/{menuId:guid}")]
    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuView)]
    public async Task<ActionResult<ApiResponse<MenuDetailsDto>>> Get(Guid menuId, CancellationToken ct)
