@@ -81,15 +81,20 @@ public sealed class AssetsController : ControllerBase
             return NotFound();
 
         var tenantId = GetTenantId();
-        var file = await _db.Files
-            .FirstOrDefaultAsync(f =>
-                f.StorageKey == storageKey && f.TenantId == tenantId && !f.IsDeleted,
+        var file = Guid.TryParse(storageKey, out var fileId)
+            ? await _db.Files.FirstOrDefaultAsync(
+                f => f.Id == fileId && f.TenantId == tenantId && f.DeletedAt == null,
+                cancellationToken)
+            : await _db.Files.FirstOrDefaultAsync(
+                f => f.StorageKey == storageKey && f.TenantId == tenantId && f.DeletedAt == null,
                 cancellationToken);
 
         if (file is null)
             return NotFound();
 
-        var stream = await _storage.ReadAsync(storageKey, cancellationToken);
+        // Section settings and branding references store the immutable file id;
+        // the physical storage key is resolved from the tracked file record.
+        var stream = await _storage.ReadAsync(file.StorageKey, cancellationToken);
         return File(stream, file.ContentType, file.FileName);
     }
 
@@ -123,17 +128,13 @@ public sealed class AssetsController : ControllerBase
         UploadDestination? parsed;
         try
         {
-            parsed = System.Text.Json.JsonSerializer.Deserialize<UploadDestination>(destination,
-                new System.Text.Json.JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                });
+            parsed = UploadDestinationJson.Deserialize(destination);
         }
         catch (System.Text.Json.JsonException)
         {
-            throw new DomainException("UPLOAD_INVALID_DESTINATION", "Destination is not valid JSON.");
+            throw new DomainException("UPLOAD_INVALID_DESTINATION",
+                "Destination is not valid JSON or does not specify a supported destination kind.");
         }
-
         if (parsed is null)
             throw new DomainException("UPLOAD_INVALID_DESTINATION", "Destination could not be parsed.");
 

@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using System.Text.Json;
 using RestaurantSaaS.Domain.Enums;
 
 namespace RestaurantSaaS.Application.Common.Files;
@@ -10,18 +11,45 @@ namespace RestaurantSaaS.Application.Common.Files;
 /// This avoids trusting raw role strings, arbitrary entity IDs, or property
 /// paths from the caller.
 /// </summary>
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(WebsiteSectionDestination), typeDiscriminator: "website-section")]
 [JsonDerivedType(typeof(RestaurantLogoDestination), typeDiscriminator: "restaurant-logo")]
 [JsonDerivedType(typeof(MenuItemDestination), typeDiscriminator: "menu-item")]
 public abstract record UploadDestination
 {
-    public string Kind { get; init; } = string.Empty;
+    [JsonIgnore]
+    public abstract string Kind { get; }
+}
+
+public static class UploadDestinationJson
+{
+    private static readonly JsonSerializerOptions Options = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
+    public static UploadDestination? Deserialize(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        var discriminator = document.RootElement.EnumerateObject()
+            .FirstOrDefault(property =>
+                string.Equals(property.Name, "kind", StringComparison.OrdinalIgnoreCase));
+
+        if (discriminator.Equals(default(JsonProperty)))
+            throw new JsonException("The upload destination kind is required.");
+
+        if (discriminator.Value.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(discriminator.Value.GetString()))
+            throw new JsonException("The upload destination kind is invalid.");
+
+        return JsonSerializer.Deserialize<UploadDestination>(json, Options);
+    }
 }
 
 /// <summary>Associate the uploaded file with a website draft section.</summary>
 public sealed record WebsiteSectionDestination : UploadDestination
 {
-    public WebsiteSectionDestination() => Kind = "website-section";
+    public override string Kind => "website-section";
 
     public Guid WebsiteId { get; init; }
     public string SectionType { get; init; } = string.Empty; // hero | about | gallery
@@ -32,7 +60,7 @@ public sealed record WebsiteSectionDestination : UploadDestination
 /// <summary>Associate the uploaded file as a restaurant branding asset.</summary>
 public sealed record RestaurantLogoDestination : UploadDestination
 {
-    public RestaurantLogoDestination() => Kind = "restaurant-logo";
+    public override string Kind => "restaurant-logo";
 
     public Guid RestaurantId { get; init; }
 }
@@ -40,7 +68,7 @@ public sealed record RestaurantLogoDestination : UploadDestination
 /// <summary>Associate the uploaded file with a menu item.</summary>
 public sealed record MenuItemDestination : UploadDestination
 {
-    public MenuItemDestination() => Kind = "menu-item";
+    public override string Kind => "menu-item";
 
     public Guid MenuItemId { get; init; }
 }
