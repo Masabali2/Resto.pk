@@ -46,18 +46,19 @@ internal static class MenuMapping
        itemCount);
 
    public static MenuItemDto ToDto(MenuItem item, Guid menuId, string? categoryName = null) => new(
-       item.Id,
-       item.MenuCategoryId,
-       menuId,
-       item.Name,
-       item.Description,
-       item.Price,
-       item.Currency,
-       item.ImageFileId,
-       item.DisplayOrder,
-       item.IsAvailable,
-       item.IsActive,
-       item.CreatedAt,
-       item.UpdatedAt,
-       categoryName);
+        item.Id,
+        item.MenuCategoryId,
+        menuId,
+        item.Name,
+        item.Description,
+        item.Price,
+        item.Currency,
+        item.ImageFileId,
+        item.DisplayOrder,
+        item.IsAvailable,
+        item.IsActive,
+        item.CreatedAt,
+        item.UpdatedAt,
+        categoryName,
+        item.ImageFileId is null ? null : $"/api/v1/files/{item.ImageFileId.Value}");
 }

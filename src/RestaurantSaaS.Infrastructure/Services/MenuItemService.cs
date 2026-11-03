@@ -122,53 +122,21 @@ public sealed class MenuItemService(ApplicationDbContext db, TenantAccessGuard a
                .ThenBy(i => i.Id)
        };
 
-       var total = await itemsQuery.CountAsync(ct);
-       var rows = await itemsQuery
-           .Skip((page - 1) * pageSize)
-           .Take(pageSize)
-           .Select(i => new
-           {
-               Item = new MenuItemDto(
-                   i.Id,
-                   i.MenuCategoryId,
-                   i.Category.MenuId,
-                   i.Name,
-                   i.Description,
-                   i.Price,
-                   i.Currency,
-                   i.ImageFileId,
-                   i.DisplayOrder,
-                   i.IsAvailable,
-                   i.IsActive,
-                   i.CreatedAt,
-                   i.UpdatedAt,
-                   i.Category.Name),
-               StorageKey = i.ImageFileId == null
-                   ? null
-                   : db.Files
-                       .Where(f => f.Id == i.ImageFileId)
-                       .Select(f => f.StorageKey)
-                       .FirstOrDefault()
-           })
-           .ToListAsync(ct);
+        var total = await itemsQuery.CountAsync(ct);
+        var items = await itemsQuery
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .Select(i => MenuMapping.ToDto(i, i.Category.MenuId, i.Category.Name))
+            .ToListAsync(ct);
 
-       var items = rows
-           .Select(row => row.Item with
-           {
-               ImageUrl = string.IsNullOrWhiteSpace(row.StorageKey)
-                   ? null
-                   : $"/api/v1/files/{Uri.EscapeDataString(row.StorageKey)}"
-           })
-           .ToList();
-
-       return new PagedResult<MenuItemDto>
-       {
-           Items = items,
-           Page = page,
-           PageSize = pageSize,
-           TotalCount = total
-       };
-   }
+        return new PagedResult<MenuItemDto>
+        {
+            Items = items,
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total
+        };
+    }
 
    public async Task<MenuItemSummaryDto> GetMenuSummaryAsync(Guid menuId, CancellationToken ct = default)
    {

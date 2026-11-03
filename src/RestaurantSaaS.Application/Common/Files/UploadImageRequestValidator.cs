@@ -6,11 +6,6 @@ namespace RestaurantSaaS.Application.Common.Files;
 
 public sealed class UploadImageRequestValidator : AbstractValidator<UploadImageRequest>
 {
-    private static readonly JsonSerializerOptions DestinationOptions = new()
-    {
-        PropertyNameCaseInsensitive = true
-    };
-
     public UploadImageRequestValidator()
     {
         RuleFor(x => x.File)
@@ -26,15 +21,13 @@ public sealed class UploadImageRequestValidator : AbstractValidator<UploadImageR
                 UploadDestination? parsed;
                 try
                 {
-                    parsed = JsonSerializer.Deserialize<UploadDestination>(
-                        destination!, DestinationOptions);
+                    parsed = UploadDestinationJson.Deserialize(destination!);
                 }
                 catch (JsonException)
                 {
-                    context.AddFailure("Destination is not valid JSON.");
+                    context.AddFailure("Destination is not valid JSON or does not specify a supported destination kind.");
                     return;
                 }
-
                 if (parsed is null)
                 {
                     context.AddFailure("Destination could not be parsed.");

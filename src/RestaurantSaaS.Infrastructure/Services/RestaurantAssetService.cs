@@ -333,9 +333,12 @@ public sealed class RestaurantAssetService(
             .Where(predicate)
             .Where(a => a.IsActive &&
                         (a.AssetType == AssetType.Logo ||
+                         a.AssetType == AssetType.DarkLogo ||
                          a.AssetType == AssetType.Favicon ||
                          a.AssetType == AssetType.CoverImage ||
                          a.AssetType == AssetType.Banner ||
+                         a.AssetType == AssetType.OGBanner ||
+                         a.AssetType == AssetType.HeroBanner ||
                          a.AssetType == AssetType.MobileLogo))
             .OrderBy(a => a.AssetType)
             .Select(a => new
