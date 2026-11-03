@@ -8,9 +8,9 @@ using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
 using RestaurantSaaS.Application.Common.Options;
 using RestaurantSaaS.Domain.Entities.Files;
+using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Persistence;
-using RestaurantSaaS.Infrastructure.Tenancy;
 
 namespace RestaurantSaaS.Api.Controllers;
 
@@ -21,25 +21,32 @@ namespace RestaurantSaaS.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("api/v1")]
-[Authorize(Policy = IdentityPolicyNames.TenantMember)]
+[Authorize]
 public sealed class AssetsController : ControllerBase
 {
     private readonly IAssetUploadService _upload;
     private readonly IFileStorageService _storage;
     private readonly ApplicationDbContext _db;
+    private readonly ICurrentUserService _currentUser;
+    private readonly ITenantMembershipService _membershipService;
 
     public AssetsController(
         IAssetUploadService upload,
         IFileStorageService storage,
-        ApplicationDbContext db)
+        ApplicationDbContext db,
+        ICurrentUserService currentUser,
+        ITenantMembershipService membershipService)
     {
         _upload = upload;
         _storage = storage;
         _db = db;
+        _currentUser = currentUser;
+        _membershipService = membershipService;
     }
 
     /// <summary>Uploads an image and associates it with the authorized destination.</summary>
     [HttpPost("assets/upload")]
+    [Authorize(Policy = IdentityPolicyNames.TenantMember)]
     public async Task<IActionResult> Upload([FromForm] UploadImageRequest request,
         CancellationToken cancellationToken)
     {
@@ -71,8 +78,11 @@ public sealed class AssetsController : ControllerBase
     }
 
     /// <summary>
-    /// Secure, tenant-scoped file delivery for editor previews. The caller
-    /// must be a member of the tenant that owns the file.
+    /// Secure file delivery. Authorization is bound to the file's owning tenant
+    /// and the caller's ACTIVE membership in that tenant — not to the ambient
+    /// tenant context or a client-supplied header. Native image requests cannot
+    /// send custom headers, so the tenant is resolved from the file metadata and
+    /// the authenticated user's memberships.
     /// </summary>
     [HttpGet("files/{*storageKey}")]
     public async Task<IActionResult> GetFile(string storageKey, CancellationToken cancellationToken)
@@ -80,17 +90,50 @@ public sealed class AssetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(storageKey))
             return NotFound();
 
-        var tenantId = GetTenantId();
-        var file = Guid.TryParse(storageKey, out var fileId)
-            ? await _db.Files.FirstOrDefaultAsync(
-                f => f.Id == fileId && f.TenantId == tenantId && f.DeletedAt == null,
-                cancellationToken)
-            : await _db.Files.FirstOrDefaultAsync(
-                f => f.StorageKey == storageKey && f.TenantId == tenantId && f.DeletedAt == null,
-                cancellationToken);
+        var userId = GetUserId();
+        if (userId is null)
+            return Unauthorized();
+
+        // Resolve by immutable file id or legacy storage key. The storage key
+        // form is retained so existing presigned/preview URLs keep working.
+        //
+        // Tenant filters are disabled here on purpose: authorization is bound to
+        // the file's OWNING tenant (checked below via membership), not to the
+        // ambient tenant context. Native image requests carry no X-Tenant-Id,
+        // so the ambient tenant is often null for multi-tenant users and must
+        // not gate the file lookup.
+        var previous = _db.DisableTenantFilters;
+        _db.DisableTenantFilters = true;
+        FileMetadata? file;
+        try
+        {
+            file = Guid.TryParse(storageKey, out var fileId)
+                ? await _db.Files.FirstOrDefaultAsync(
+                    f => f.Id == fileId && f.DeletedAt == null,
+                    cancellationToken)
+                : await _db.Files.FirstOrDefaultAsync(
+                    f => f.StorageKey == storageKey && f.DeletedAt == null,
+                    cancellationToken);
+        }
+        finally
+        {
+            _db.DisableTenantFilters = previous;
+        }
 
         if (file is null)
             return NotFound();
+
+        // The file must belong to a valid tenant.
+        if (file.TenantId is null)
+            return NotFound();
+
+        // The caller must hold an ACTIVE membership in the file-owning tenant.
+        // This works for users with multiple memberships without an X-Tenant-Id
+        // header and never trusts a client-supplied tenant.
+        var membership = await _membershipService.GetMembershipAsync(
+            userId.Value, file.TenantId.Value, cancellationToken);
+        if (membership is null || membership.Status != (int)MembershipStatus.Active)
+            return Forbid();
 
         // Section settings and branding references store the immutable file id;
         // the physical storage key is resolved from the tracked file record.
@@ -98,11 +141,19 @@ public sealed class AssetsController : ControllerBase
         return File(stream, file.ContentType, file.FileName);
     }
 
+    private Guid? GetUserId()
+    {
+        if (!_currentUser.IsAuthenticated || _currentUser.UserId is not { } userId)
+            return null;
+        return userId;
+    }
+
     /// <summary>
     /// Soft-deletes an asset when it is no longer referenced. Returns 409 when
     /// the asset is still referenced by another resource.
     /// </summary>
     [HttpDelete("assets/{id}")]
+    [Authorize(Policy = IdentityPolicyNames.TenantMember)]
     public async Task<IActionResult> DeleteAsset(Guid id, CancellationToken cancellationToken)
     {
         var deleted = await _upload.DeleteAsync(id, cancellationToken);
@@ -139,13 +190,5 @@ public sealed class AssetsController : ControllerBase
             throw new DomainException("UPLOAD_INVALID_DESTINATION", "Destination could not be parsed.");
 
         return parsed;
-    }
-
-    private Guid GetTenantId()
-    {
-        // TenantMember policy guarantees a tenant has been resolved by the
-        // tenant middleware before the controller runs.
-        var context = HttpContext.RequestServices.GetRequiredService<ITenantContext>();
-        return context.GetRequiredTenantId();
     }
 }

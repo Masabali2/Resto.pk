@@ -9,6 +9,13 @@
   </PropertyGroup>
 
 	<ItemGroup>
+	  <Compile Remove="storage\**" />
+	  <Content Remove="storage\**" />
+	  <EmbeddedResource Remove="storage\**" />
+	  <None Remove="storage\**" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.2.0" />
 		<PackageReference Include="Hangfire.AspNetCore" Version="1.8.25" />
 		<PackageReference Include="Hangfire.SqlServer" Version="1.8.25" />
