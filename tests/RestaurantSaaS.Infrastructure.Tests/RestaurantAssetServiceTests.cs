@@ -58,8 +58,6 @@ public sealed class RestaurantAssetServiceTests : IDisposable
                 It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid? t, Stream s, string fn, string ct, CancellationToken _) =>
                 $"tenant/{t:N}/{Guid.NewGuid():N}{Path.GetExtension(fn)}");
-        _storage.Setup(x => x.GetPresignedUrl(It.IsAny<string>(), It.IsAny<TimeSpan>()))
-            .Returns((string key, TimeSpan _) => $"/api/v1/files/{key}?exp=3600");
         _storage.Setup(x => x.DeleteAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .Returns(Task.CompletedTask);
 
@@ -153,6 +151,8 @@ public sealed class RestaurantAssetServiceTests : IDisposable
         result.FileName.Should().Be("logo.png");
         result.ContentType.Should().Be("image/png");
         result.Id.Should().NotBe(Guid.Empty);
+        result.Url.Should().Be($"/api/v1/files/{result.FileId:D}");
+        result.Url.Should().NotContain("exp=");
 
         var stored = await _db.RestaurantAssets
             .Include(a => a.File)
@@ -255,8 +255,46 @@ public sealed class RestaurantAssetServiceTests : IDisposable
         dto.FileName.Should().Be("logo.png");
         dto.ContentType.Should().Be("image/png");
         dto.FileSize.Should().Be(1234);
-        dto.Url.Should().NotBeNullOrWhiteSpace();
+        dto.Url.Should().Be($"/api/v1/files/{file.Id:D}");
+        dto.Url.Should().NotContain("exp=");
         dto.CreatedAt.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1));
+    }
+
+    [Fact]
+    public async Task Upload_ReturnsUrlBasedOnImmutableFileIdWithoutExpiration()
+    {
+        await AddOwnerMembershipAsync();
+        await AddActiveSubscriptionAsync();
+        var restaurantId = await AddRestaurantAsync(Guid.NewGuid());
+
+        var result = await Service().UploadAsync(
+            restaurantId, "logo", PngFile().OpenReadStream(), "logo.png", "image/png");
+
+        result.FileId.Should().NotBe(Guid.Empty);
+        result.Url.Should().Be($"/api/v1/files/{result.FileId:D}");
+        result.Url.Should().NotContain("tenant");
+        result.Url.Should().NotContain("exp=");
+    }
+
+    [Fact]
+    public async Task List_ReturnsUrlsBasedOnImmutableFileIdsWithoutExpiration()
+    {
+        await AddOwnerMembershipAsync();
+        var restaurantId = await AddRestaurantAsync(Guid.NewGuid());
+        var logoFile = await AddFileAsync(Guid.NewGuid(), "logo.png", 1234);
+        var faviconFile = await AddFileAsync(Guid.NewGuid(), "favicon.png", 4321);
+        await AddAssetAsync(Guid.NewGuid(), restaurantId, logoFile.Id, AssetType.Logo);
+        await AddAssetAsync(Guid.NewGuid(), restaurantId, faviconFile.Id, AssetType.Favicon);
+
+        var list = await Service().ListAsync(restaurantId);
+
+        list.Should().HaveCount(2);
+        list.Single(a => a.AssetType == "Logo").Url
+            .Should().Be($"/api/v1/files/{logoFile.Id:D}");
+        list.Single(a => a.AssetType == "Favicon").Url
+            .Should().Be($"/api/v1/files/{faviconFile.Id:D}");
+        list.Should().OnlyContain(a => !a.Url.Contains("exp="));
+        list.Should().OnlyContain(a => !a.Url.Contains("tenant"));
     }
 
     [Fact]

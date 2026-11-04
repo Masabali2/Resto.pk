@@ -19,6 +19,10 @@ public interface IFileStorageService
 
     Task DeleteAsync(string storageKey, CancellationToken cancellationToken = default);
 
-    /// <summary>Time-limited access URL; never a raw filesystem path.</summary>
+    /// <summary>
+    /// Legacy storage-key delivery URL. The local implementation does not sign
+    /// or validate the expiration, so it is not used for new asset URLs.
+    /// New code must use <see cref="RestaurantSaaS.Application.Common.Files.FileUrls.ForFile"/> with the file id.
+    /// </summary>
     string GetPresignedUrl(string storageKey, TimeSpan expiration);
 }

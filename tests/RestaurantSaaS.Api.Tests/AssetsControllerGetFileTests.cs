@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -73,6 +74,9 @@ public sealed class AssetsControllerGetFileTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         response.Content.Headers.ContentType?.MediaType.Should().Be("image/jpeg");
+        // The response must be usable directly by an <img> element, not
+        // presented as a file download.
+        response.Content.Headers.ContentDisposition?.DispositionType.Should().Be("inline");
         (await response.Content.ReadAsByteArrayAsync()).Should().BeEquivalentTo(ImageBytes);
     }
 
@@ -93,6 +97,39 @@ public sealed class AssetsControllerGetFileTests
         // serving legacy storage-key URLs.
         var byId = await harness.GetFileAsync(OwnerUser, fileId.ToString());
         byId.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task GetFile_Returns200_ForUrlEncodedStorageKeyUrl()
+    {
+        await using var harness = await Harness.CreateAsync();
+        const string storageKey = "tenant/aaaaaaaaaaaa4aaa8aaaaaaaaaaaaa/encoded.png";
+        await harness.AddFileAsync(
+            TenantA, "encoded.png", "image/png", ImageBytes, storageKey: storageKey);
+
+        // Upload responses and presigned URLs escape the storage key, so the
+        // endpoint must resolve the decoded key as well.
+        var response = await harness.GetFileAsync(
+            OwnerUser, Uri.EscapeDataString(storageKey));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Content.Headers.ContentType?.MediaType.Should().Be("image/png");
+        (await response.Content.ReadAsByteArrayAsync()).Should().BeEquivalentTo(ImageBytes);
+    }
+
+    [Fact]
+    public async Task GetFile_Returns404_WhenPhysicalFileIsMissing()
+    {
+        await using var harness = await Harness.CreateAsync();
+        const string storageKey = "tenant/aaaaaaaaaaaa4aaa8aaaaaaaaaaaaa/missing.png";
+        var fileId = await harness.AddFileAsync(
+            TenantA, "missing.png", "image/png", ImageBytes, storageKey: storageKey);
+
+        harness.DeletePhysicalFile(storageKey);
+
+        var response = await harness.GetFileAsync(OwnerUser, fileId.ToString());
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]
@@ -196,8 +233,13 @@ public sealed class AssetsControllerGetFileTests
             builder.Services.AddScoped<ICurrentUserService, CurrentUserService>();
             builder.Services.AddScoped<IDateTimeProvider, DateTimeProvider>();
 
+            // AddDbContext builds options per scope, so the database name and
+            // root must be created once; otherwise each scope (the seed
+            // context and the request context) gets its own empty database.
+            var databaseName = $"GetFileTest-{Guid.NewGuid():N}";
+            var inMemoryRoot = new InMemoryDatabaseRoot();
             builder.Services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseInMemoryDatabase($"GetFileTest-{Guid.NewGuid():N}"));
+                options.UseInMemoryDatabase(databaseName, inMemoryRoot));
 
             builder.Services.AddSingleton<IAssetUploadService>(Mock.Of<IAssetUploadService>());
             builder.Services.AddSingleton<IFileStorageService>(new LocalFileStorageService(config));
@@ -252,6 +294,16 @@ public sealed class AssetsControllerGetFileTests
             await _db.SaveChangesAsync();
 
             return metadata.Id;
+        }
+
+        public void DeletePhysicalFile(string storageKey)
+        {
+            var fullPath = Path.Combine(
+                _tempRoot,
+                storageKey.Replace('/', Path.DirectorySeparatorChar));
+
+            if (File.Exists(fullPath))
+                File.Delete(fullPath);
         }
 
         public Task<HttpResponseMessage> GetFileAsync(

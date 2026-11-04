@@ -48,7 +48,6 @@ public sealed class RestaurantAssetService(
                 a.File.FileName,
                 a.File.ContentType,
                 a.File.FileSize,
-                a.File.StorageKey,
                 a.CreatedAt,
                 a.UpdatedAt
             })
@@ -63,7 +62,7 @@ public sealed class RestaurantAssetService(
             a.FileSize,
             a.CreatedAt,
             a.UpdatedAt,
-            storage.GetPresignedUrl(a.StorageKey, UrlLifetime))).ToList();
+            FileUrls.ForFile(a.FileId))).ToList();
     }
 
     public async Task<RestaurantAssetDto> UploadAsync(
@@ -344,22 +343,20 @@ public sealed class RestaurantAssetService(
             .Select(a => new
             {
                 a.AssetType,
-                a.File.ContentType,
-                a.File.StorageKey
+                a.FileId,
+                a.File.ContentType
             })
             .ToListAsync(ct);
 
         return rows
             .Select(a => new PublicRestaurantAssetDto(
                 a.AssetType.ToString(),
-                storage.GetPresignedUrl(a.StorageKey, UrlLifetime),
+                FileUrls.ForFile(a.FileId),
                 a.ContentType))
             .ToList();
     }
 
     // ---------------- helpers ----------------
-
-    private static readonly TimeSpan UrlLifetime = TimeSpan.FromHours(1);
 
     private async Task<Guid> GetActiveTenantIdAsync(string requiredPermission, CancellationToken ct)
     {
@@ -520,5 +517,5 @@ public sealed class RestaurantAssetService(
         file.FileSize,
         asset.CreatedAt,
         asset.UpdatedAt,
-        storage.GetPresignedUrl(file.StorageKey, UrlLifetime));
+        FileUrls.ForFile(file.Id));
 }

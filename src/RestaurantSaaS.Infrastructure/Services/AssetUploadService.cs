@@ -136,7 +136,7 @@ public sealed class AssetUploadService : IAssetUploadService
             metadata.FileSize,
             metadata.Width,
             metadata.Height,
-            $"/api/v1/files/{Uri.EscapeDataString(storageKey)}",
+            FileUrls.ForFile(metadata.Id),
             destination.Kind);
     }
 

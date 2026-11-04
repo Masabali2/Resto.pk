@@ -54,6 +54,8 @@ public sealed class LocalFileStorageService(IConfiguration configuration) : IFil
         return Task.CompletedTask;
     }
 
+    // Legacy storage-key URL. The endpoint does not validate the expiration,
+    // so new asset URLs are built from the file id via FileUrls.ForFile.
     public string GetPresignedUrl(string storageKey, TimeSpan expiration) =>
         $"/api/v1/files/{Uri.EscapeDataString(storageKey)}?exp={(int)expiration.TotalSeconds}";
 

@@ -175,7 +175,8 @@ public sealed class AssetUploadServiceTests : IDisposable
             PngFile());
 
         result.Should().NotBeNull();
-        result.PreviewUrl.Should().StartWith("/api/v1/files/");
+        result.PreviewUrl.Should().Be($"/api/v1/files/{result.AssetId:D}");
+        result.PreviewUrl.Should().NotContain("exp=");
         result.Width.Should().Be(1);
         result.Height.Should().Be(1);
 
