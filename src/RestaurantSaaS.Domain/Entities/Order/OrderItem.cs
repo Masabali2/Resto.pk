@@ -8,9 +8,9 @@ public class OrderItem : BaseEntity
 {
     public const int MaxQuantityPerLine = 999;
 
-    private const decimal MaxMoneyAmount = 99999999999999.9999m;
+    private const decimal MaxMoneyAmount = 9999999999999999.99m;
 
-    public Guid OrderId { get; private set; }
+    public Guid OrderId { get; internal set; }
     public Guid? MenuItemId { get; private set; }
 
     public string ItemName { get; private set; } = null!;
@@ -47,11 +47,11 @@ public class OrderItem : BaseEntity
 
         if (unitPrice < 0m ||
             unitPrice > MaxMoneyAmount ||
-            decimal.Round(unitPrice, 4) != unitPrice)
+            decimal.Round(unitPrice, 2) != unitPrice)
         {
             throw new DomainException(
                 "ORDERITEM_PRICE_INVALID",
-                "Order line price must be non-negative and support no more than four decimal places.");
+                "Order line price must be non-negative, within the supported range, and have no more than two decimal places.");
         }
 
         if (quantity is < 1 or > MaxQuantityPerLine)

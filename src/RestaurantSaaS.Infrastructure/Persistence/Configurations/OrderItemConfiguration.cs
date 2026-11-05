@@ -38,14 +38,14 @@ public sealed class OrderItemConfiguration : IEntityTypeConfiguration<OrderItem>
             .HasMaxLength(200);
 
         builder.Property(i => i.UnitPrice)
-            .HasPrecision(18, 4)
+            .HasPrecision(18, 2)
             .IsRequired();
 
         builder.Property(i => i.Quantity)
             .IsRequired();
 
         builder.Property(i => i.LineTotal)
-            .HasPrecision(18, 4)
+            .HasPrecision(18, 2)
             .IsRequired();
 
         builder.Property(i => i.Currency)

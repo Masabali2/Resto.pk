@@ -18,6 +18,9 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
         builder.Property(c => c.TenantId)
             .IsRequired();
 
+        builder.Property(c => c.RestaurantId)
+            .IsRequired(false);
+
         builder.Property(c => c.CustomerId)
             .IsRequired(false);
 
@@ -31,6 +34,9 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
 
         builder.Property(c => c.ExpiresAt)
             .IsRequired();
+
+        builder.Property(c => c.RowVersion)
+            .IsRowVersion();
 
         builder.Property(c => c.CreatedAt)
             .IsRequired();

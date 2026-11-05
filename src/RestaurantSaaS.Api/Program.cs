@@ -1,6 +1,8 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Antiforgery;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -34,6 +36,15 @@ builder.Services.AddCors(options =>
             .AllowAnyMethod()
             .AllowCredentials();
     });
+});
+
+builder.Services.AddAntiforgery(options =>
+{
+    options.Cookie.Name = "XSRF-TOKEN";
+    options.Cookie.HttpOnly = false;
+    options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.Path = "/";
+    options.HeaderName = "X-XSRF-TOKEN";
 });
 
 builder.Services.AddAuthorization();
@@ -80,6 +91,12 @@ builder.Services.AddTenantAuthorization();
 builder.Services
     .AddOptions<JwtOptions>()
     .Bind(builder.Configuration.GetSection(JwtOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+builder.Services
+    .AddOptions<ShopperSessionOptions>()
+    .Bind(builder.Configuration.GetSection(ShopperSessionOptions.SectionName))
     .ValidateDataAnnotations()
     .ValidateOnStart();
 
@@ -173,6 +190,9 @@ app.UseMiddleware<HandleExceptionMiddleware>();
 app.UseHttpsRedirection();
 app.UseCors("Frontend");
 
+app.UseMiddleware<ShopperSessionMiddleware>();
+app.UseMiddleware<OriginValidationMiddleware>();
+
 app.UseAuthentication();
 
 app.UseMiddleware<TenantResolutionMiddleware>();
@@ -180,5 +200,12 @@ app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext context) =>
+{
+    antiforgery.GetAndStoreTokens(context);
+    var token = context.Request.Cookies["XSRF-TOKEN"];
+    return Results.Ok(new { token });
+});
 
 app.Run();

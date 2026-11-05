@@ -16,6 +16,10 @@ using RestaurantSaaS.Infrastructure.Tenancy;
 using RestaurantSaaS.Application.Features.Staff;
 using RestaurantSaaS.Application.Common.Entitlements;
 using RestaurantSaaS.Application.Features.Subscriptions;
+using RestaurantSaaS.Application.Features.Orders;
+using RestaurantSaaS.Application.Features.PublicCarts;
+using RestaurantSaaS.Application.Features.PublicOrders;
+using RestaurantSaaS.Application.Features.Restaurants;
 namespace RestaurantSaaS.Infrastructure;
 
 public static class DependencyInjection
@@ -51,7 +55,12 @@ public static class DependencyInjection
     .ValidateOnStart();
 
         services.AddOptions<EmailVerificationOptions>()
-            .Bind(configuration.GetSection(EmailVerificationOptions.SectionName))
+    .Bind(configuration.GetSection(EmailVerificationOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart();
+
+        services.AddOptions<ShopperSessionOptions>()
+            .Bind(configuration.GetSection(ShopperSessionOptions.SectionName))
             .ValidateDataAnnotations()
             .ValidateOnStart();
 
@@ -102,6 +111,15 @@ public static class DependencyInjection
         services.AddScoped<IPlatformAdminService, PlatformAdminService>();
         services.AddScoped<IMenuService, MenuService>();
         services.AddScoped<IEntitlementService, EntitlementService>();
+        services.AddScoped<IOrderTrackingTokenService, OrderTrackingTokenService>();
+        services.AddScoped<IOrderNumberGenerator, OrderNumberGenerator>();
+        services.AddScoped<IShopperSessionService, ShopperSessionService>();
+        services.AddScoped<IShopperSessionCookieService, ShopperSessionCookieService>();
+        services.AddScoped<IShopperSessionContext, ShopperSessionContext>();
+        services.AddScoped<IPublicRestaurantService, PublicRestaurantService>();
+        services.AddScoped<IPublicCartService, PublicCartService>();
+        services.AddScoped<IPublicOrderService, PublicOrderService>();
+        services.AddScoped<IStaffOrderService, StaffOrderService>();
 
         // Image upload / asset management.
         services.AddSingleton<IImageDimensionReader, ImageDimensionReader>();

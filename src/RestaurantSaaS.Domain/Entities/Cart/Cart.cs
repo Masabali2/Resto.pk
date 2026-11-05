@@ -11,9 +11,13 @@ public class Cart : AuditableEntity, ITenantOwned
 
     public Guid TenantId { get;  set; }
 
+    public Guid? RestaurantId { get; private set; }
+
     public Guid? CustomerId { get; private set; }
 
     public string? SessionId { get; private set; }
+
+    public byte[] RowVersion { get; private set; } = [];
 
     public CartStatus Status { get; private set; } = CartStatus.Active;
 
@@ -31,6 +35,7 @@ public class Cart : AuditableEntity, ITenantOwned
 
     public static Cart Create(
         Guid tenantId,
+        Guid restaurantId,
         Guid? customerId,
         string? sessionId,
         DateTime utcNow)
@@ -42,6 +47,13 @@ public class Cart : AuditableEntity, ITenantOwned
             throw new DomainException(
                 "CART_TENANT_REQUIRED",
                 "A cart must belong to a tenant.");
+        }
+
+        if (restaurantId == Guid.Empty)
+        {
+            throw new DomainException(
+                "CART_RESTAURANT_REQUIRED",
+                "A cart must belong to a restaurant.");
         }
 
         if (customerId == Guid.Empty)
@@ -63,6 +75,7 @@ public class Cart : AuditableEntity, ITenantOwned
         return new Cart
         {
             TenantId = tenantId,
+            RestaurantId = restaurantId,
             CustomerId = customerId,
             SessionId = normalizedSessionId,
             Status = CartStatus.Active,
