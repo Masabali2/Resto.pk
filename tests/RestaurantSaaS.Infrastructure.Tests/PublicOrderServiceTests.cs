@@ -566,4 +566,163 @@ public class PublicOrderServiceTests
 
         await act.Should().ThrowAsync<DomainException>();
     }
+
+    [Fact]
+    public async Task CreateOrderFromCartAsync_SingleOrderOnly_DuplicateCheckoutPrevented()
+    {
+        using var db = CreateInMemoryDbWithCart(out var tenantId, out var restaurantId, out var menuItemId, out _, quantity: 1);
+        var service = CreateService(db, tenantId);
+
+        // First checkout succeeds
+        await service.CreateOrderFromCartAsync(
+            restaurantId,
+            new CreatePublicOrderRequest(OrderType.Pickup, "John Doe", null, null, null));
+
+        // Second checkout with same cart should be rejected
+        var act = () => service.CreateOrderFromCartAsync(
+            restaurantId,
+            new CreatePublicOrderRequest(OrderType.Pickup, "John Doe", null, null, null));
+
+        await act.Should().ThrowAsync<DomainException>();
+
+        // Exactly one order must exist
+        var orderCount = await db.Orders.CountAsync();
+        orderCount.Should().Be(1);
+
+        // Cart must be converted
+        var cart = await db.Carts.FirstAsync();
+        cart.Status.Should().Be(CartStatus.Converted);
+    }
+
+    [Fact]
+    public async Task CreateOrderFromCartAsync_TaxAndOrderTypeAppliedCorrectly()
+    {
+        using var db = CreateInMemoryDbWithCart(out var tenantId, out var restaurantId, out var menuItemId, out _, quantity: 2);
+        var service = CreateService(db, tenantId);
+
+        var response = await service.CreateOrderFromCartAsync(
+            restaurantId,
+            new CreatePublicOrderRequest(OrderType.DineIn, "John Doe", null, null, null));
+
+        // Subtotal 900 + tax 144 (16%) = 1044
+        response.TotalAmount.Should().Be(1044m);
+        response.Items.Should().HaveCount(1);
+
+        // Verify persisted order has correct type
+        var order = await db.Orders.FirstAsync();
+        order.OrderType.Should().Be(OrderType.DineIn);
+        order.TaxAmount.Should().Be(144m);
+        order.Subtotal.Should().Be(900m);
+        order.TotalAmount.Should().Be(1044m);
+    }
+
+    [Fact]
+    public async Task CreateDirectOrderAsync_DuplicateMenuItemIds_Rejects()
+    {
+        using var db = CreateInMemoryDbForDirectOrder(out var tenantId, out var restaurantId, out var menuItemId);
+        var service = CreateService(db, tenantId);
+
+        var request = new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest>
+            {
+                new(menuItemId, 1),
+                new(menuItemId, 2) // duplicate
+            });
+
+        var act = () => service.CreateDirectOrderAsync(restaurantId, request);
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateDirectOrderAsync_NullMenuItemEntry_Rejects()
+    {
+        using var db = CreateInMemoryDbForDirectOrder(out var tenantId, out var restaurantId, out var menuItemId);
+        var service = CreateService(db, tenantId);
+
+        // Null entry in the item collection — FluentValidation NotNull should reject it.
+        var items = new List<DirectPublicOrderItemRequest> { new(menuItemId, 1) };
+        items.Add(null!);
+
+        var request = new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            items);
+
+        var act = () => service.CreateDirectOrderAsync(restaurantId, request);
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateDirectOrderAsync_InvalidQuantity_Rejects()
+    {
+        using var db = CreateInMemoryDbForDirectOrder(out var tenantId, out var restaurantId, out var menuItemId);
+        var service = CreateService(db, tenantId);
+
+        var request = new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest>
+            {
+                new(menuItemId, 0) // invalid quantity
+            });
+
+        var act = () => service.CreateDirectOrderAsync(restaurantId, request);
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateDirectOrderAsync_TaxAndOrderTypeAppliedCorrectly()
+    {
+        using var db = CreateInMemoryDbForDirectOrder(out var tenantId, out var restaurantId, out var menuItemId);
+        var service = CreateService(db, tenantId);
+
+        var request = new CreateDirectPublicOrderRequest(
+            OrderType.Delivery,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest> { new(menuItemId, 2) });
+
+        var response = await service.CreateDirectOrderAsync(restaurantId, request);
+
+        // Subtotal 900 + tax 144 (16%) = 1044
+        response.TotalAmount.Should().Be(1044m);
+
+        var order = await db.Orders.FirstAsync();
+        order.OrderType.Should().Be(OrderType.Delivery);
+        order.TaxAmount.Should().Be(144m);
+        order.Subtotal.Should().Be(900m);
+        order.TotalAmount.Should().Be(1044m);
+    }
+
+    // ------------------------------------------------------------------
+    // Concurrency note:
+    // EF Core InMemory does not enforce byte[] RowVersion optimistic
+    // concurrency, so the DbUpdateConcurrencyException catch path in
+    // CreateOrderFromCartAsync cannot be triggered by an InMemory test.
+    // On SQL Server, two concurrent checkouts of the same active cart:
+    //   1. Both pass the cart.Status == Active pre-check.
+    //   2. First SaveChangesAsync succeeds (marks cart Converted, bumps RowVersion).
+    //   3. Second SaveChangesAsync throws DbUpdateConcurrencyException
+    //      because Cart.RowVersion no longer matches the database value.
+    //   4. The catch block converts it to DomainException("CART_ALREADY_CONVERTED").
+    //   5. SaveChangesAsync is atomic: on failure, neither the order nor
+    //      the cart conversion is persisted.
+    // SQL Server verification of this path is deferred to Phase 4G.
+    // ------------------------------------------------------------------
 }

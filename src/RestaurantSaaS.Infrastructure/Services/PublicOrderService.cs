@@ -128,7 +128,16 @@ public sealed class PublicOrderService(
             db.Entry(item).State = EntityState.Deleted;
         }
 
-        await db.SaveChangesAsync(ct);
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            // Optimistic concurrency on Cart.RowVersion: another checkout
+            // already converted this cart. Fail closed with a controlled error.
+            throw new DomainException("CART_ALREADY_CONVERTED", "This cart has already been used to create an order.");
+        }
 
         return MapToResponse(order, rawTrackingToken, orderItems);
     }
@@ -148,8 +157,14 @@ public sealed class PublicOrderService(
         if (request.Items is null || request.Items.Count == 0)
             throw new DomainException("ORDER_ITEMS_REQUIRED", "An order must have at least one item.");
 
-        var menuItemIds = request.Items.Select(i => i.MenuItemId).Distinct().ToList();
-        var menuItems = await LoadMenuItems(menuItemIds, ct);
+        if (request.Items.Any(i => i is null))
+            throw new DomainException("ORDER_ITEM_INVALID", "Order item cannot be null.");
+
+        var distinctItemIds = request.Items.Select(i => i.MenuItemId).Distinct().ToList();
+        if (distinctItemIds.Count != request.Items.Count)
+            throw new DomainException("DUPLICATE_MENU_ITEM", "Duplicate menu item IDs are not allowed. Use quantity instead.");
+
+        var menuItems = await LoadMenuItems(distinctItemIds, ct);
 
         var menuItemLookup = menuItems.ToDictionary(mi => mi.Id);
 

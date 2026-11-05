@@ -45,6 +45,7 @@ public sealed class CreateDirectPublicOrderRequestValidator : AbstractValidator<
             .NotEmpty()
             .WithMessage("At least one item is required.");
         RuleForEach(x => x.Items)
+            .NotNull()
             .ChildRules(items =>
             {
                 items.RuleFor(i => i.MenuItemId).NotEmpty();
