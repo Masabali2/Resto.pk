@@ -209,3 +209,8 @@ app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext cont
 });
 
 app.Run();
+
+/// <summary>
+/// Exposed to allow WebApplicationFactory<Program> in integration tests.
+/// </summary>
+public partial class Program { }

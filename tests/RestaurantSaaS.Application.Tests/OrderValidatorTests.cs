@@ -1,8 +1,10 @@
 using FluentAssertions;
 using RestaurantSaaS.Application.Features.Orders.DTOs;
 using RestaurantSaaS.Application.Features.Orders.Validators;
+using RestaurantSaaS.Application.Features.PublicOrders.DTOs;
+using RestaurantSaaS.Application.Features.PublicOrders.Validators;
 using RestaurantSaaS.Domain.Enums;
-using StaffUpdateStatusRequest = RestaurantSaaS.Application.Features.Orders.DTOS.UpdateOrderStatusRequest;
+using StaffUpdateRequest = RestaurantSaaS.Application.Features.Orders.DTOS.UpdateOrderStatusRequest;
 
 namespace RestaurantSaaS.Application.Tests;
 
@@ -385,7 +387,7 @@ public class OrderValidatorTests
     public void StaffUpdateOrderStatus_WhenValidEnum_Passes()
     {
         var validator = new StaffUpdateOrderStatusRequestValidator();
-        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, null));
+        var result = validator.Validate(new StaffUpdateRequest(OrderStatus.Confirmed, null));
 
         result.IsValid.Should().BeTrue();
     }
@@ -394,28 +396,126 @@ public class OrderValidatorTests
     public void StaffUpdateOrderStatus_WhenInvalidEnum_Fails()
     {
         var validator = new StaffUpdateOrderStatusRequestValidator();
-        var result = validator.Validate(new StaffUpdateStatusRequest((OrderStatus)99, null));
+        var result = validator.Validate(new StaffUpdateRequest((OrderStatus)99, null));
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateStatusRequest.NewStatus));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateRequest.NewStatus));
     }
 
     [Fact]
     public void StaffUpdateOrderStatus_WhenNotesTooLong_Fails()
     {
         var validator = new StaffUpdateOrderStatusRequestValidator();
-        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, new string('x', 1001)));
+        var result = validator.Validate(new StaffUpdateRequest(OrderStatus.Confirmed, new string('x', 1001)));
 
         result.IsValid.Should().BeFalse();
-        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateStatusRequest.Notes));
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateRequest.Notes));
     }
 
     [Fact]
     public void StaffUpdateOrderStatus_WhenNotesAtMaxLength_Passes()
     {
         var validator = new StaffUpdateOrderStatusRequestValidator();
-        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, new string('x', 1000)));
+        var result = validator.Validate(new StaffUpdateRequest(OrderStatus.Confirmed, new string('x', 1000)));
 
         result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenValid_Passes()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            "+923001234567",
+            "john@example.com",
+            null,
+            new List<DirectPublicOrderItemRequest> { new(Guid.NewGuid(), 2) }));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenEmptyItems_Fails()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest>()));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateDirectPublicOrderRequest.Items));
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenNullMenuItemEntry_Fails()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var items = new List<DirectPublicOrderItemRequest> { new(Guid.NewGuid(), 1) };
+        items.Add(null!);
+
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            items));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenInvalidQuantity_Fails()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest> { new(Guid.NewGuid(), 0) }));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenEmptyMenuItemId_Fails()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest> { new(Guid.Empty, 1) }));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().NotBeEmpty();
+    }
+
+    [Fact]
+    public void DirectPublicOrder_WhenMissingCustomerName_Fails()
+    {
+        var validator = new CreateDirectPublicOrderRequestValidator();
+        var result = validator.Validate(new CreateDirectPublicOrderRequest(
+            OrderType.Pickup,
+            "",
+            null,
+            null,
+            null,
+            new List<DirectPublicOrderItemRequest> { new(Guid.NewGuid(), 1) }));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(CreateDirectPublicOrderRequest.CustomerName));
     }
 }
