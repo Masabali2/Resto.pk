@@ -170,7 +170,7 @@ if (app.Environment.IsDevelopment())
 
     var clock = services.GetRequiredService<IDateTimeProvider>();
 
-    await DbSeeder.SeedAsync(db, clock);
+    await DbSeeder.SeedAsync(db, clock, builder.Configuration);
 
     // Development-only demo catalogue for the Menu Management screen. The
     // seeder owns a dedicated demo tenant and is idempotent.
@@ -208,7 +208,7 @@ app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext cont
     return Results.Ok(new { token });
 });
 
-app.Run();
+await app.RunAsync();
 
 /// <summary>
 /// Exposed to allow WebApplicationFactory<Program> in integration tests.

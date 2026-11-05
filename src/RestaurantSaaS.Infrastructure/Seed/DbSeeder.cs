@@ -1,6 +1,7 @@
 
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Features.Subscriptions;
@@ -14,8 +15,6 @@ namespace RestaurantSaaS.Infrastructure.Seed;
 
 public static class DbSeeder
 {
-    public const string DevPassword = "Masab@123";
-
     private const string PlatformAdminEmail =
         "alimasab923@gmail.com";
 
@@ -34,10 +33,12 @@ public static class DbSeeder
     public static async Task SeedAsync(
         ApplicationDbContext db,
         IDateTimeProvider clock,
+        IConfiguration configuration,
         IPasswordHasher<User>? passwordHasher = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(configuration);
 
         passwordHasher ??= new PasswordHasher<User>();
 
@@ -50,7 +51,8 @@ public static class DbSeeder
         var admin = await EnsurePlatformAdminUserAsync(
             db,
             clock,
-            passwordHasher);
+            passwordHasher,
+            configuration);
 
         var platformRoleId = await GetRoleIdAsync(
             db,
@@ -226,7 +228,8 @@ public static class DbSeeder
     private static async Task<User> EnsurePlatformAdminUserAsync(
         ApplicationDbContext db,
         IDateTimeProvider clock,
-        IPasswordHasher<User> passwordHasher)
+        IPasswordHasher<User> passwordHasher,
+        IConfiguration configuration)
     {
         var normalizedEmail = PlatformAdminEmail.ToUpperInvariant();
 
@@ -238,6 +241,15 @@ public static class DbSeeder
         if (existingUser is not null)
         {
             return existingUser;
+        }
+
+        var platformAdminPassword = configuration["Seed:PlatformAdminPassword"];
+
+        if (string.IsNullOrWhiteSpace(platformAdminPassword))
+        {
+            throw new InvalidOperationException(
+                "Seed:PlatformAdminPassword configuration is required to create the platform administrator. " +
+                "Set it via User Secrets or the Seed__PlatformAdminPassword environment variable.");
         }
 
         var user = new User
@@ -255,7 +267,7 @@ public static class DbSeeder
 
         user.PasswordHash = passwordHasher.HashPassword(
             user,
-            DevPassword);
+            platformAdminPassword);
 
         db.Users.Add(user);
 
