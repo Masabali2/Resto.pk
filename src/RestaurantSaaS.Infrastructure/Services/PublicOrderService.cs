@@ -6,6 +6,7 @@ using RestaurantSaaS.Application.Features.PublicOrders.DTOs;
 using RestaurantSaaS.Domain.Entities.Carts;
 using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Entities.Orders;
+using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Domain.ValueObjects;
@@ -16,10 +17,10 @@ namespace RestaurantSaaS.Infrastructure.Services;
 /// <summary>
 /// Public order creation for anonymous customers.
 ///
-/// Creates an order from the current shopper cart. All financials are
-/// server-calculated. A secure tracking token is generated and its SHA-256
-/// hash stored in Order.TrackingTokenHash; the raw token is returned exactly
-/// once in the response and is never persisted or logged.
+/// Supports both cart-based checkout and direct order creation without a cart.
+/// All financials are server-calculated. A secure tracking token is generated
+/// and its SHA-256 hash stored in Order.TrackingTokenHash; the raw token is
+/// returned exactly once in the response and is never persisted or logged.
 /// </summary>
 public sealed class PublicOrderService(
     ApplicationDbContext db,
@@ -46,18 +47,19 @@ public sealed class PublicOrderService(
             ct)
             ?? throw new NotFoundException("Cart", "No active cart found for this session and restaurant.");
 
+        // Duplicate prevention: cart already converted or otherwise inactive
+        if (cart.Status != CartStatus.Active)
+            throw new DomainException("CART_ALREADY_CONVERTED", "This cart has already been used to create an order.");
+
         cart.EnsureUsable(utcNow);
 
         if (cart.Items.Count == 0)
             throw new DomainException("CART_EMPTY", "Cannot create an order from an empty cart.");
 
+        var restaurant = await GetRestaurantAsync(restaurantId, tenantId, ct);
+
         var menuItemIds = cart.Items.Select(i => i.MenuItemId).ToList();
-        var menuItems = await db.MenuItems
-            .AsNoTracking()
-            .Include(mi => mi.Category)
-            .ThenInclude(c => c.Menu)
-            .Where(mi => menuItemIds.Contains(mi.Id))
-            .ToListAsync(ct);
+        var menuItems = await LoadMenuItems(menuItemIds, ct);
 
         var menuItemLookup = menuItems.ToDictionary(mi => mi.Id);
 
@@ -70,17 +72,8 @@ public sealed class PublicOrderService(
             if (!menuItemLookup.TryGetValue(cartItem.MenuItemId, out var menuItem))
                 throw new NotFoundException("MenuItem", cartItem.MenuItemId);
 
-            if (menuItem.Category is null ||
-                menuItem.Category.Menu is null ||
-                menuItem.Category.Menu.RestaurantId != restaurantId)
-            {
-                throw new CrossTenantAccessException();
-            }
-
-            if (!menuItem.CanBeOrdered)
-                throw new DomainException(
-                    "ITEM_NOT_ORDERABLE",
-                    $"Menu item '{menuItem.Name}' is no longer available for ordering.");
+            ValidateMenuItemOwnership(menuItem, restaurantId);
+            ValidateMenuItemOrderable(menuItem);
 
             var price = menuItem.GetCurrentPrice();
 
@@ -95,7 +88,7 @@ public sealed class PublicOrderService(
             subtotal += lineTotal;
 
             orderItems.Add(OrderItem.CreateSnapshot(
-                Guid.NewGuid(), // placeholder; Order.Create() overwrites with the real Order.Id
+                Guid.NewGuid(),
                 cartItem.MenuItemId,
                 menuItem.Name,
                 price.Amount,
@@ -103,11 +96,7 @@ public sealed class PublicOrderService(
                 price.Currency));
         }
 
-        currency ??= Money.DefaultCurrency;
-
-        var discountAmount = 0m;
-        var taxAmount = 0m;
-        var totalAmount = subtotal - discountAmount + taxAmount;
+        var financials = CalculateFinancials(subtotal, restaurant.TaxRate);
 
         var orderNumber = orderNumberGenerator.Generate();
         var (rawTrackingToken, trackingTokenHash) = trackingTokenService.Generate();
@@ -120,13 +109,13 @@ public sealed class PublicOrderService(
             request.CustomerName,
             request.CustomerPhone,
             request.CustomerEmail,
-            subtotal,
-            discountAmount,
-            taxAmount,
-            totalAmount,
-            currency,
+            financials.Subtotal,
+            financials.DiscountAmount,
+            financials.TaxAmount,
+            financials.TotalAmount,
+            currency ?? Money.DefaultCurrency,
             request.SpecialInstructions,
-            OrderType.Pickup,
+            request.OrderType,
             orderItems);
 
         order.SetTrackingTokenHash(trackingTokenHash);
@@ -141,6 +130,112 @@ public sealed class PublicOrderService(
 
         await db.SaveChangesAsync(ct);
 
+        return MapToResponse(order, rawTrackingToken, orderItems);
+    }
+
+    public async Task<CreatePublicOrderResponse> CreateDirectOrderAsync(
+        Guid restaurantId,
+        CreateDirectPublicOrderRequest request,
+        CancellationToken ct = default)
+    {
+        var tenantId = GetTenantId();
+
+        var restaurant = await GetRestaurantAsync(restaurantId, tenantId, ct);
+
+        if (!restaurant.CanAcceptOrders)
+            throw new DomainException("RESTAURANT_NOT_ACTIVE", "Restaurant is not accepting orders.");
+
+        if (request.Items is null || request.Items.Count == 0)
+            throw new DomainException("ORDER_ITEMS_REQUIRED", "An order must have at least one item.");
+
+        var menuItemIds = request.Items.Select(i => i.MenuItemId).Distinct().ToList();
+        var menuItems = await LoadMenuItems(menuItemIds, ct);
+
+        var menuItemLookup = menuItems.ToDictionary(mi => mi.Id);
+
+        var orderItems = new List<OrderItem>();
+        decimal subtotal = 0m;
+        string? currency = null;
+
+        foreach (var itemRequest in request.Items)
+        {
+            if (!menuItemLookup.TryGetValue(itemRequest.MenuItemId, out var menuItem))
+                throw new NotFoundException("MenuItem", itemRequest.MenuItemId);
+
+            ValidateMenuItemOwnership(menuItem, restaurantId);
+            ValidateMenuItemOrderable(menuItem);
+
+            var price = menuItem.GetCurrentPrice();
+
+            if (currency is null)
+                currency = price.Currency;
+            else if (currency != price.Currency)
+                throw new DomainException(
+                    "CURRENCY_MISMATCH",
+                    "All items in an order must use the same currency.");
+
+            var lineTotal = price.Amount * itemRequest.Quantity;
+            subtotal += lineTotal;
+
+            orderItems.Add(OrderItem.CreateSnapshot(
+                Guid.NewGuid(),
+                itemRequest.MenuItemId,
+                menuItem.Name,
+                price.Amount,
+                itemRequest.Quantity,
+                price.Currency));
+        }
+
+        var financials = CalculateFinancials(subtotal, restaurant.TaxRate);
+
+        var orderNumber = orderNumberGenerator.Generate();
+        var (rawTrackingToken, trackingTokenHash) = trackingTokenService.Generate();
+
+        var order = Order.Create(
+            tenantId,
+            restaurantId,
+            null,
+            orderNumber,
+            request.CustomerName,
+            request.CustomerPhone,
+            request.CustomerEmail,
+            financials.Subtotal,
+            financials.DiscountAmount,
+            financials.TaxAmount,
+            financials.TotalAmount,
+            currency ?? Money.DefaultCurrency,
+            request.SpecialInstructions,
+            request.OrderType,
+            orderItems);
+
+        order.SetTrackingTokenHash(trackingTokenHash);
+
+        db.Orders.Add(order);
+        await db.SaveChangesAsync(ct);
+
+        return MapToResponse(order, rawTrackingToken, orderItems);
+    }
+
+    // ------------------------------------------------------------
+    // Private helpers
+    // ------------------------------------------------------------
+
+    private static (decimal Subtotal, decimal DiscountAmount, decimal TaxAmount, decimal TotalAmount) CalculateFinancials(
+        decimal subtotal,
+        decimal taxRate)
+    {
+        var discountAmount = 0m;
+        var taxAmount = Math.Round(subtotal * taxRate / 100m, 4, MidpointRounding.AwayFromZero);
+        var totalAmount = subtotal - discountAmount + taxAmount;
+
+        return (subtotal, discountAmount, taxAmount, totalAmount);
+    }
+
+    private static CreatePublicOrderResponse MapToResponse(
+        Order order,
+        string rawTrackingToken,
+        IReadOnlyList<OrderItem> orderItems)
+    {
         return new CreatePublicOrderResponse(
             order.Id,
             order.OrderNumber,
@@ -156,6 +251,48 @@ public sealed class PublicOrderService(
                 oi.LineTotal,
                 oi.Currency)).ToList(),
             order.CreatedAt);
+    }
+
+    private async Task<Restaurant> GetRestaurantAsync(
+        Guid restaurantId,
+        Guid tenantId,
+        CancellationToken ct)
+    {
+        var restaurant = await db.Restaurants
+            .FirstOrDefaultAsync(r => r.Id == restaurantId && r.TenantId == tenantId, ct)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        return restaurant;
+    }
+
+    private async Task<List<MenuItem>> LoadMenuItems(
+        List<Guid> menuItemIds,
+        CancellationToken ct)
+    {
+        return await db.MenuItems
+            .AsNoTracking()
+            .Include(mi => mi.Category)
+            .ThenInclude(c => c.Menu)
+            .Where(mi => menuItemIds.Contains(mi.Id))
+            .ToListAsync(ct);
+    }
+
+    private static void ValidateMenuItemOwnership(MenuItem menuItem, Guid restaurantId)
+    {
+        if (menuItem.Category is null ||
+            menuItem.Category.Menu is null ||
+            menuItem.Category.Menu.RestaurantId != restaurantId)
+        {
+            throw new CrossTenantAccessException();
+        }
+    }
+
+    private static void ValidateMenuItemOrderable(MenuItem menuItem)
+    {
+        if (!menuItem.CanBeOrdered)
+            throw new DomainException(
+                "ITEM_NOT_ORDERABLE",
+                $"Menu item '{menuItem.Name}' is no longer available for ordering.");
     }
 
     private string GetSessionHash()
@@ -178,8 +315,6 @@ public sealed class PublicOrderService(
         string rawTrackingToken,
         CancellationToken ct = default)
     {
-        // Hash the raw token and compare against the persisted hash.
-        // Never log or return the raw token.
         var trackingTokenHash = trackingTokenService.Hash(rawTrackingToken);
 
         var order = await db.Orders

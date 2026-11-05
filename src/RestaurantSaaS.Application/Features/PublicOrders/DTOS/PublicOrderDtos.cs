@@ -40,6 +40,27 @@ public sealed record PublicOrderItemDto(
     string Currency);
 
 /// <summary>
+/// Single line item request for a direct public order.
+/// Only menu item ID and quantity are accepted — prices come from the server.
+/// </summary>
+public sealed record DirectPublicOrderItemRequest(
+    Guid MenuItemId,
+    int Quantity);
+
+/// <summary>
+/// Request to create a public order directly without requiring a shopper cart.
+/// Only menu item IDs, quantities, and customer details are accepted — all
+/// financials are server-calculated from current menu prices.
+/// </summary>
+public sealed record CreateDirectPublicOrderRequest(
+    OrderType OrderType,
+    string CustomerName,
+    string? CustomerPhone,
+    string? CustomerEmail,
+    string? SpecialInstructions,
+    IReadOnlyList<DirectPublicOrderItemRequest> Items);
+
+/// <summary>
 /// Public order tracking response — only data safe to expose to an anonymous
 /// customer who holds a valid tracking token. No TenantId, CustomerId, or
 /// shopper-session identifiers.

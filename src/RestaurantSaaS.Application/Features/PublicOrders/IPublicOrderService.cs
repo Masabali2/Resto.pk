@@ -25,6 +25,17 @@ public interface IPublicOrderService
         CancellationToken ct = default);
 
     /// <summary>
+    /// Creates a public order directly without requiring a shopper cart.
+    /// Menu item IDs and quantities are accepted; all financials are
+    /// server-calculated from current menu prices. Returns the order details
+    /// including the raw tracking token (once only).
+    /// </summary>
+    Task<CreatePublicOrderResponse> CreateDirectOrderAsync(
+        Guid restaurantId,
+        CreateDirectPublicOrderRequest request,
+        CancellationToken ct = default);
+
+    /// <summary>
     /// Looks up an order for public tracking by the raw tracking token.
     ///
     /// The raw token is SHA-256 hashed and compared against the persisted
