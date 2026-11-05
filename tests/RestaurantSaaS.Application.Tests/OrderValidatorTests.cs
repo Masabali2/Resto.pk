@@ -2,6 +2,7 @@ using FluentAssertions;
 using RestaurantSaaS.Application.Features.Orders.DTOs;
 using RestaurantSaaS.Application.Features.Orders.Validators;
 using RestaurantSaaS.Domain.Enums;
+using StaffUpdateStatusRequest = RestaurantSaaS.Application.Features.Orders.DTOS.UpdateOrderStatusRequest;
 
 namespace RestaurantSaaS.Application.Tests;
 
@@ -376,6 +377,44 @@ public class OrderValidatorTests
     public void OrderListQuery_WhenSearchAtMaxLength_Passes()
     {
         var result = _listQuery.Validate(new OrderListQuery { Page = 1, PageSize = 10, Search = new string('a', 100) });
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void StaffUpdateOrderStatus_WhenValidEnum_Passes()
+    {
+        var validator = new StaffUpdateOrderStatusRequestValidator();
+        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, null));
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void StaffUpdateOrderStatus_WhenInvalidEnum_Fails()
+    {
+        var validator = new StaffUpdateOrderStatusRequestValidator();
+        var result = validator.Validate(new StaffUpdateStatusRequest((OrderStatus)99, null));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateStatusRequest.NewStatus));
+    }
+
+    [Fact]
+    public void StaffUpdateOrderStatus_WhenNotesTooLong_Fails()
+    {
+        var validator = new StaffUpdateOrderStatusRequestValidator();
+        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, new string('x', 1001)));
+
+        result.IsValid.Should().BeFalse();
+        result.Errors.Should().Contain(e => e.PropertyName == nameof(StaffUpdateStatusRequest.Notes));
+    }
+
+    [Fact]
+    public void StaffUpdateOrderStatus_WhenNotesAtMaxLength_Passes()
+    {
+        var validator = new StaffUpdateOrderStatusRequestValidator();
+        var result = validator.Validate(new StaffUpdateStatusRequest(OrderStatus.Confirmed, new string('x', 1000)));
 
         result.IsValid.Should().BeTrue();
     }

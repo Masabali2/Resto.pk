@@ -41,6 +41,25 @@ public sealed class PublicOrdersController(
     }
 
     /// <summary>
+    /// Creates a public order directly without requiring a shopper cart.
+    /// All financials are server-calculated. Requires a valid shopper session.
+    /// </summary>
+    [HttpPost("direct")]
+    public async Task<ActionResult<ApiResponse<CreatePublicOrderResponse>>> CreateDirect(
+        string slug,
+        [FromBody] CreateDirectPublicOrderRequest request,
+        CancellationToken ct)
+    {
+        var restaurant = await ResolveRestaurantAsync(slug, ct);
+        if (restaurant is null)
+            return NotFound(ApiResponse<CreatePublicOrderResponse>.Fail(
+                "NOT_FOUND", "Restaurant not found or not available for ordering."));
+
+        var response = await orderService.CreateDirectOrderAsync(restaurant.Id, request, ct);
+        return Ok(ApiResponse<CreatePublicOrderResponse>.Ok(response));
+    }
+
+    /// <summary>
     /// Public order tracking. Resolves an order by the SHA-256 hash of the
     /// raw tracking token. Safe (GET) — no antiforgery required.
     /// </summary>

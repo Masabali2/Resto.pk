@@ -1,4 +1,5 @@
 using FluentValidation;
+using StaffUpdateStatusRequest = RestaurantSaaS.Application.Features.Orders.DTOS.UpdateOrderStatusRequest;
 using RestaurantSaaS.Application.Features.Orders.DTOs;
 
 namespace RestaurantSaaS.Application.Features.Orders.Validators;
@@ -81,5 +82,16 @@ public sealed class CancelOrderRequestValidator : AbstractValidator<CancelOrderR
         RuleFor(x => x.Reason)
             .MaximumLength(1000)
             .When(x => !string.IsNullOrWhiteSpace(x.Reason));
+    }
+}
+
+public sealed class StaffUpdateOrderStatusRequestValidator : AbstractValidator<StaffUpdateStatusRequest>
+{
+    public StaffUpdateOrderStatusRequestValidator()
+    {
+        RuleFor(x => x.NewStatus).IsInEnum();
+        RuleFor(x => x.Notes)
+            .MaximumLength(1000)
+            .When(x => !string.IsNullOrWhiteSpace(x.Notes));
     }
 }

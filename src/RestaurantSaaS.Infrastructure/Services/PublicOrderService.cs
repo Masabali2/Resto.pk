@@ -148,6 +148,7 @@ public sealed class PublicOrderService(
         CancellationToken ct = default)
     {
         var tenantId = GetTenantId();
+        var sessionHash = GetSessionHash();
 
         var restaurant = await GetRestaurantAsync(restaurantId, tenantId, ct);
 
