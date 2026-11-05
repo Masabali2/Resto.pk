@@ -8,25 +8,87 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-test:
-    name: Build and Test
+    name: Build, Test and SonarQube Analysis
     runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_USER_HOME: ${{ github.workspace }}/.sonar
 
     steps:
       - name: Checkout backend repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 10.0.x
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj', '**/Directory.Packages.props') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Cache SonarQube packages
+        uses: actions/cache@v4
+        with:
+          path: .sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: |
+            ${{ runner.os }}-sonar
+
+      - name: Install SonarScanner for .NET
+        run: |
+          dotnet tool install --global dotnet-sonarscanner
+          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
+
       - name: Restore dependencies
         run: dotnet restore ./RestaurantSaaS.slnx
+
+      - name: Begin SonarQube analysis
+        id: sonar_begin
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          dotnet sonarscanner begin \
+            /k:"Resto.pk" \
+            /o:"masabali2" \
+            /d:sonar.token="$SONAR_TOKEN" \
+            /d:sonar.cs.opencover.reportsPaths="**/coverage.opencover.xml" \
+            /d:sonar.qualitygate.wait=true \
+            /d:sonar.qualitygate.timeout=300
 
       - name: Build solution
         run: dotnet build ./RestaurantSaaS.slnx --configuration Release --no-restore
 
-      - name: Run tests
-        run: dotnet test ./RestaurantSaaS.slnx --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"
+      - name: Run tests with code coverage
+        run: |
+          dotnet test ./RestaurantSaaS.slnx \
+            --configuration Release \
+            --no-build \
+            --no-restore \
+            --logger "console;verbosity=minimal" \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover
+
+      - name: End SonarQube analysis
+        if: always() && steps.sonar_begin.outcome == 'success'
+        run: dotnet sonarscanner end /d:sonar.token="$SONAR_TOKEN"
