@@ -96,11 +96,6 @@ public sealed class StaffOrderService(
 
         order.TransitionTo(request.NewStatus, changedByUserId, request.Notes, utcNow);
 
-        // RowVersion is not a logical concurrency token for this use case;
-        // exclude it from the UPDATE to avoid provider-specific byte[]
-        // comparison issues with InMemory databases in tests.
-        db.Entry(order).Property(nameof(Order.RowVersion)).IsModified = false;
-
         await db.SaveChangesAsync(ct);
 
         return MapToDto(order);

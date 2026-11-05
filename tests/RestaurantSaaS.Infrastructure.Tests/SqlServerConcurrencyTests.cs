@@ -3,7 +3,9 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Moq;
+using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Interfaces;
+using RestaurantSaaS.Application.Features.Orders.DTOS;
 using RestaurantSaaS.Application.Features.PublicOrders;
 using RestaurantSaaS.Application.Features.PublicOrders.DTOs;
 using RestaurantSaaS.Domain.Entities.Carts;
@@ -13,9 +15,11 @@ using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Entities.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Tenants;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Domain.ValueObjects;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
+using Xunit;
 
 namespace RestaurantSaaS.Infrastructure.Tests;
 
@@ -85,25 +89,23 @@ public class SqlServerConcurrencyTests
     [Fact]
     public async Task ConcurrentCheckout_OnlyOneOrderPersisted()
     {
-        // Opt-in test: requires a dedicated SQL Server test database
+        // Opt-in test: requires a dedicated SQL Server test database.
+        // Skips explicitly (not silently) when the connection string is missing.
         var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvVar);
         if (string.IsNullOrWhiteSpace(connectionString))
         {
-            // Test is skipped - not a failure. SQL Server concurrency verification
-            // is deferred until a dedicated test database is configured.
-            return;
+            Assert.Fail($"SQL Server concurrency test not executed: {ConnectionStringEnvVar} environment variable is not set. Configure a dedicated isolated test database and set this variable to run SQL Server concurrency verification.");
         }
 
         // NOTE: This test does NOT call Database.Migrate() or EnsureCreated()
         // against the supplied connection. The test database must be prepared
-        // separately using the existing migrations before running this test:
-        //
-        //   dotnet ef database update --connection "$env:RESTO_SQLSERVER_TEST_CONNECTION"
-        //
+        // separately using the existing migrations before running this test.
         // The connection string must point to an isolated test database that
         // is not used for development or production.
 
-        // Create two independent DbContext instances using SQL Server
+        var tenantId = Guid.NewGuid();
+        var sessionHash = $"session-{Guid.NewGuid():N}";
+
         var optionsA = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer(connectionString)
             .AddInterceptors(new ConcurrencyBarrierInterceptor())
@@ -116,7 +118,7 @@ public class SqlServerConcurrencyTests
 
         var tenantContextMock = new Mock<ITenantContext>();
         tenantContextMock.Setup(t => t.HasTenant).Returns(true);
-        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(It.IsAny<Guid>());
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
 
         var dateTimeProviderMock = new Mock<IDateTimeProvider>();
         dateTimeProviderMock.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
@@ -124,59 +126,338 @@ public class SqlServerConcurrencyTests
         using var contextA = new ApplicationDbContext(optionsA, tenantContextMock.Object, dateTimeProviderMock.Object);
         using var contextB = new ApplicationDbContext(optionsB, tenantContextMock.Object, dateTimeProviderMock.Object);
 
-        // Seed test data in contextA (shared database)
-        await SeedTestDataAsync(contextA);
+        try
+        {
+            // Seed isolated test data in contextA (shared database)
+            await SeedTestDataAsync(contextA, tenantId, sessionHash);
 
-        // Get the cart ID from contextA
-        var cart = await contextA.Carts
-            .Include(c => c.Items)
-            .FirstAsync(c => c.Status == CartStatus.Active);
+            // Get the cart ID from contextA
+            var cart = await contextA.Carts
+                .Include(c => c.Items)
+                .FirstAsync(c => c.SessionId == sessionHash && c.Status == CartStatus.Active);
 
-        var cartId = cart.Id;
-        var restaurantId = cart.RestaurantId!.Value;
-        var tenantId = cart.TenantId;
+            var cartId = cart.Id;
+            var restaurantId = cart.RestaurantId!.Value;
 
-        // Detach cart from contextA so contextB can load it independently
-        contextA.Entry(cart).State = EntityState.Detached;
+            // Detach cart from contextA so contextB can load it independently
+            contextA.Entry(cart).State = EntityState.Detached;
 
-        // Create two independent service instances
-        var serviceA = CreateService(contextA, tenantId);
-        var serviceB = CreateService(contextB, tenantId);
+            // Create two independent service instances
+            var serviceA = CreateService(contextA, tenantId);
+            var serviceB = CreateService(contextB, tenantId);
 
-        // Activate concurrency barrier for coordinated save timing (2 waiters)
-        ConcurrencyBarrierInterceptor.Activate(2);
+            // Activate concurrency barrier for coordinated save timing (2 waiters)
+            ConcurrencyBarrierInterceptor.Activate(2);
 
-        var request = new CreatePublicOrderRequest(OrderType.Pickup, "Test Customer", null, null, null);
+            var request = new CreatePublicOrderRequest(OrderType.Pickup, "Test Customer", null, null, null);
 
-        // Start both checkouts concurrently
-        var taskA = serviceA.CreateOrderFromCartAsync(restaurantId, request);
-        var taskB = serviceB.CreateOrderFromCartAsync(restaurantId, request);
+            // Start both checkouts concurrently
+            var taskA = serviceA.CreateOrderFromCartAsync(restaurantId, request);
+            var taskB = serviceB.CreateOrderFromCartAsync(restaurantId, request);
 
-        var results = await Task.WhenAll(taskA, taskB);
+            // Await each task individually so the losing checkout's DomainException
+            // does not fault Task.WhenAll and abort the test before assertions.
+            Exception? exceptionA = null;
+            Exception? exceptionB = null;
+            CreatePublicOrderResponse? resultA = null;
+            CreatePublicOrderResponse? resultB = null;
 
-        // Deactivate barrier
-        ConcurrencyBarrierInterceptor.Deactivate();
+            try
+            {
+                resultA = await taskA;
+            }
+            catch (Exception ex)
+            {
+                exceptionA = ex;
+            }
 
-        // Assert: exactly one order should have been created
-        var orderCount = await contextA.Orders.CountAsync();
-        orderCount.Should().Be(1, "Exactly one order should be persisted for one cart");
+            try
+            {
+                resultB = await taskB;
+            }
+            catch (Exception ex)
+            {
+                exceptionB = ex;
+            }
+            finally
+            {
+                // Always release the barrier, even if assertions or DB operations fail.
+                ConcurrencyBarrierInterceptor.Deactivate();
+            }
 
-        // The cart should be converted
-        var convertedCart = await contextA.Carts.FindAsync(cartId);
-        convertedCart!.Status.Should().Be(CartStatus.Converted);
+            // Assert: exactly one checkout succeeded, one was rejected
+            var successes = new List<CreatePublicOrderResponse>();
+            var failures = new List<Exception>();
 
-        // Cart items should be deleted
-        var remainingItems = await contextA.CartItems.CountAsync(ci => ci.CartId == cartId);
-        remainingItems.Should().Be(0, "Cart items should be deleted after conversion");
+            if (resultA is not null) successes.Add(resultA);
+            if (exceptionA is not null) failures.Add(exceptionA);
+            if (resultB is not null) successes.Add(resultB);
+            if (exceptionB is not null) failures.Add(exceptionB);
+
+            successes.Should().HaveCount(1, "Exactly one checkout should succeed");
+            failures.Should().HaveCount(1, "Exactly one checkout should be rejected with DomainException");
+            failures[0].Should().BeOfType<DomainException>()
+                .Which.Message.Should().Contain("CART_ALREADY_CONVERTED");
+
+            // Assert: exactly one order was persisted
+            var orderCount = await contextA.Orders.CountAsync(o => o.TenantId == tenantId);
+            orderCount.Should().Be(1, "Exactly one order should be persisted for one cart");
+
+            // The cart should be converted
+            var convertedCart = await contextA.Carts.FindAsync(cartId);
+            convertedCart.Should().NotBeNull();
+            convertedCart!.Status.Should().Be(CartStatus.Converted, "Cart should be converted after successful checkout");
+
+            // Cart items should be deleted
+            var remainingItems = await contextA.CartItems.CountAsync(ci => ci.CartId == cartId);
+            remainingItems.Should().Be(0, "Cart items should be deleted after conversion");
+
+            // Clean up: remove the test order and cart
+            var orderToRemove = await contextA.Orders.FirstOrDefaultAsync(o => o.TenantId == tenantId);
+            if (orderToRemove is not null)
+            {
+                contextA.Orders.Remove(orderToRemove);
+            }
+            contextA.Carts.Remove(convertedCart);
+            await contextA.SaveChangesAsync();
+        }
+        catch
+        {
+            // Ensure barrier is released even on unexpected failure
+            ConcurrencyBarrierInterceptor.Deactivate();
+            throw;
+        }
     }
 
-    private static async Task SeedTestDataAsync(ApplicationDbContext db)
+    [Fact]
+    public async Task ConcurrentStaffStatusTransition_OnlyOneSucceeds()
     {
-        // Check if data already exists (idempotent seeding)
-        if (await db.Tenants.AnyAsync())
+        // Opt-in test: requires a dedicated SQL Server test database.
+        var connectionString = Environment.GetEnvironmentVariable(ConnectionStringEnvVar);
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            Assert.Fail($"SQL Server staff concurrency test not executed: {ConnectionStringEnvVar} environment variable is not set.");
+        }
+
+        var tenantId = Guid.NewGuid();
+        var restaurantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+
+        var optionsA = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlServer(connectionString)
+            .AddInterceptors(new ConcurrencyBarrierInterceptor())
+            .Options;
+
+        var optionsB = new DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseSqlServer(connectionString)
+            .AddInterceptors(new ConcurrencyBarrierInterceptor())
+            .Options;
+
+        var tenantContextMock = new Mock<ITenantContext>();
+        tenantContextMock.Setup(t => t.HasTenant).Returns(true);
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
+
+        var dateTimeProviderMock = new Mock<IDateTimeProvider>();
+        dateTimeProviderMock.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
+
+        using var contextA = new ApplicationDbContext(optionsA, tenantContextMock.Object, dateTimeProviderMock.Object);
+        using var contextB = new ApplicationDbContext(optionsB, tenantContextMock.Object, dateTimeProviderMock.Object);
+
+        try
+        {
+            // Seed isolated test data: tenant, restaurant, order in New status
+            if (!await dbTenantExists(contextA, tenantId))
+            {
+                await SeedStaffConcurrencyTestData(contextA, tenantId, restaurantId);
+            }
+
+            // Get the order ID from contextA
+            var order = await contextA.Orders
+                .FirstAsync(o => o.TenantId == tenantId && o.Status == OrderStatus.New);
+
+            var orderId = order.Id;
+
+            // Detach order from contextA so contextB can load it independently
+            contextA.Entry(order).State = EntityState.Detached;
+
+            // Create two independent service instances
+            var serviceA = CreateStaffService(contextA, tenantId, userId);
+            var serviceB = CreateStaffService(contextB, tenantId, userId);
+
+            // Activate concurrency barrier for coordinated save timing (2 waiters)
+            ConcurrencyBarrierInterceptor.Activate(2);
+
+            var request = new UpdateOrderStatusRequest(OrderStatus.Confirmed, null);
+
+            // Start both transitions concurrently
+            var taskA = serviceA.TransitionStatusAsync(restaurantId, orderId, request, userId);
+            var taskB = serviceB.TransitionStatusAsync(restaurantId, orderId, request, userId);
+
+            Exception? exceptionA = null;
+            Exception? exceptionB = null;
+            StaffOrderDto? resultA = null;
+            StaffOrderDto? resultB = null;
+
+            try
+            {
+                resultA = await taskA;
+            }
+            catch (Exception ex)
+            {
+                exceptionA = ex;
+            }
+
+            try
+            {
+                resultB = await taskB;
+            }
+            catch (Exception ex)
+            {
+                exceptionB = ex;
+            }
+            finally
+            {
+                ConcurrencyBarrierInterceptor.Deactivate();
+            }
+
+            // Assert: exactly one transition succeeded, one was rejected
+            var successes = new List<StaffOrderDto>();
+            var failures = new List<Exception>();
+
+            if (resultA is not null) successes.Add(resultA);
+            if (exceptionA is not null) failures.Add(exceptionA);
+            if (resultB is not null) successes.Add(resultB);
+            if (exceptionB is not null) failures.Add(exceptionB);
+
+            successes.Should().HaveCount(1, "Exactly one status transition should succeed");
+            failures.Should().HaveCount(1, "Exactly one transition should be rejected due to concurrency");
+
+            // The losing transition should get a concurrency-related exception
+            var losingEx = failures[0];
+            losingEx.Should().BeOfType<DbUpdateConcurrencyException>();
+
+            // Assert: order status in DB should be Confirmed (one successful transition)
+            var finalOrder = await contextA.Orders.FindAsync(orderId);
+            finalOrder.Should().NotBeNull();
+            finalOrder!.Status.Should().Be(OrderStatus.Confirmed, "Order status should reflect the one successful transition");
+
+            // Clean up
+            contextA.Orders.Remove(finalOrder);
+            await contextA.SaveChangesAsync();
+        }
+        catch
+        {
+            ConcurrencyBarrierInterceptor.Deactivate();
+            throw;
+        }
+    }
+
+    private static async Task<bool> dbTenantExists(ApplicationDbContext db, Guid tenantId)
+    {
+        return await db.Tenants.AnyAsync(t => t.Id == tenantId);
+    }
+
+    private static async Task SeedStaffConcurrencyTestData(ApplicationDbContext db, Guid tenantId, Guid restaurantId)
+    {
+        var tenant = Tenant.Create("Staff Concurrency Tenant", $"staff-concurrency-{tenantId:N}");
+        tenant.ChangeStatus(TenantStatus.Active);
+        db.Tenants.Add(tenant);
+
+        var address = Address.Create("123 Test St", "Karachi", "Pakistan");
+        var restaurant = Restaurant.Create(tenant.Id, "Staff Concurrency Restaurant", address, taxRate: 16m);
+        restaurant.ChangeStatus(RestaurantStatus.Active);
+        db.Restaurants.Add(restaurant);
+
+        var subscription = Subscription.Start(
+            tenant.Id,
+            Guid.NewGuid(),
+            DateTime.UtcNow.AddDays(-1),
+            DateTime.UtcNow.AddDays(30));
+        db.Subscriptions.Add(subscription);
+
+        await db.SaveChangesAsync();
+
+        var orderItem = OrderItem.CreateSnapshot(
+            Guid.NewGuid(), Guid.NewGuid(), "Test Burger", 450m, 1, "PKR");
+
+        var order = Order.Create(
+            tenantId,
+            restaurantId,
+            null,
+            $"ORD-STAFF-{Guid.NewGuid():N}",
+            "Test Customer",
+            null,
+            null,
+            450m,
+            0m,
+            0m,
+            450m,
+            "PKR",
+            null,
+            OrderType.Pickup,
+            new[] { orderItem });
+
+        db.Orders.Add(order);
+        await db.SaveChangesAsync();
+    }
+
+    private static StaffOrderService CreateStaffService(ApplicationDbContext db, Guid tenantId, Guid userId)
+    {
+        var currentUserMock = new Mock<ICurrentUserService>();
+        currentUserMock.Setup(c => c.IsAuthenticated).Returns(true);
+        currentUserMock.Setup(c => c.UserId).Returns(userId);
+
+        var membershipMock = new Mock<ITenantMembershipService>();
+        membershipMock.Setup(m => m.GetMembershipAsync(userId, tenantId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TenantMembershipInfo(
+                Guid.NewGuid(), tenantId, "Test Tenant", "test-tenant",
+                Guid.NewGuid(), Permissions.TenantRoles.Owner, (int)RestaurantSaaS.Domain.Enums.MembershipStatus.Active));
+
+        var tenantContextMock = new Mock<ITenantContext>();
+        tenantContextMock.Setup(t => t.HasTenant).Returns(true);
+        tenantContextMock.Setup(t => t.TenantId).Returns(tenantId);
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
+
+        var dateTimeProvider = new Mock<IDateTimeProvider>();
+        dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
+
+        return new StaffOrderService(
+            db,
+            tenantContextMock.Object,
+            currentUserMock.Object,
+            membershipMock.Object,
+            dateTimeProvider.Object);
+    }
+
+    private static PublicOrderService CreateService(ApplicationDbContext db, Guid tenantId)
+    {
+        var sessionContextMock = new Mock<IShopperSessionContext>();
+        sessionContextMock.Setup(s => s.SessionHash).Returns("test-session-hash-for-concurrency");
+
+        var tenantContextMock = new Mock<ITenantContext>();
+        tenantContextMock.Setup(t => t.HasTenant).Returns(true);
+        tenantContextMock.Setup(t => t.TenantId).Returns(tenantId);
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
+
+        var dateTimeProvider = new Mock<IDateTimeProvider>();
+        dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
+
+        return new PublicOrderService(
+            db,
+            sessionContextMock.Object,
+            tenantContextMock.Object,
+            dateTimeProvider.Object,
+            new Mock<IOrderNumberGenerator>().Object,
+            new OrderTrackingTokenService());
+    }
+
+    private static async Task SeedTestDataAsync(ApplicationDbContext db, Guid tenantId, string sessionHash)
+    {
+        // Check if data already exists for this tenant (idempotent seeding)
+        if (await db.Tenants.AnyAsync(t => t.Id == tenantId))
             return;
 
-        var tenant = Tenant.Create("Concurrency Test Tenant", "concurrency-tenant");
+        var tenant = Tenant.Create("Concurrency Test Tenant", $"concurrency-{tenantId:N}");
         tenant.ChangeStatus(TenantStatus.Active);
         db.Tenants.Add(tenant);
 
@@ -209,7 +490,6 @@ public class SqlServerConcurrencyTests
         await db.SaveChangesAsync();
 
         // Create active cart
-        var sessionHash = "test-session-hash-for-concurrency";
         var cart = Cart.Create(
             tenant.Id,
             restaurant.Id,
@@ -230,27 +510,5 @@ public class SqlServerConcurrencyTests
         db.CartItems.Add(cartItem);
 
         await db.SaveChangesAsync();
-    }
-
-    private static PublicOrderService CreateService(ApplicationDbContext db, Guid tenantId)
-    {
-        var sessionContextMock = new Mock<IShopperSessionContext>();
-        sessionContextMock.Setup(s => s.SessionHash).Returns("test-session-hash-for-concurrency");
-
-        var tenantContextMock = new Mock<ITenantContext>();
-        tenantContextMock.Setup(t => t.HasTenant).Returns(true);
-        tenantContextMock.Setup(t => t.TenantId).Returns(tenantId);
-        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
-
-        var dateTimeProvider = new Mock<IDateTimeProvider>();
-        dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
-
-        return new PublicOrderService(
-            db,
-            sessionContextMock.Object,
-            tenantContextMock.Object,
-            dateTimeProvider.Object,
-            new Mock<IOrderNumberGenerator>().Object,
-            new OrderTrackingTokenService());
     }
 }

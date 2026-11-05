@@ -45,10 +45,12 @@ public sealed class CartConfiguration : IEntityTypeConfiguration<Cart>
             .IsRequired(false);
 
         // Guest-cart lookup within a tenant.
-        // Non-unique because a session may have historical carts.
-        builder.HasIndex(c => new { c.TenantId, c.SessionId })
-            .HasDatabaseName("IX_Carts_TenantId_SessionId")
-            .HasFilter("[SessionId] IS NOT NULL");
+        // Unique for active carts only: one active cart per tenant/restaurant/session.
+        // Historical carts (Converted, Expired, Merged) are excluded so they can coexist.
+        builder.HasIndex(c => new { c.TenantId, c.RestaurantId, c.SessionId })
+            .IsUnique()
+            .HasDatabaseName("UX_Carts_TenantId_RestaurantId_SessionId_Active")
+            .HasFilter("[SessionId] IS NOT NULL AND [Status] = 1");
 
         // Find a customer's active carts within a tenant.
         builder.HasIndex(c => new

@@ -202,6 +202,21 @@ public sealed class PublicCartService(
         return tenantContext.GetRequiredTenantId();
     }
 
+    private async Task<Restaurant> GetValidRestaurantAsync(
+        Guid restaurantId,
+        Guid tenantId,
+        CancellationToken ct)
+    {
+        var restaurant = await db.Restaurants
+            .FirstOrDefaultAsync(r => r.Id == restaurantId && r.TenantId == tenantId, ct)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        if (!restaurant.CanAcceptOrders)
+            throw new DomainException("RESTAURANT_NOT_ACTIVE", "Restaurant is not accepting orders.");
+
+        return restaurant;
+    }
+
     private async Task<Cart> GetOrCreateCartAsync(
         Guid restaurantId,
         Guid tenantId,
@@ -209,6 +224,11 @@ public sealed class PublicCartService(
         DateTime utcNow,
         CancellationToken ct)
     {
+        // Validate the restaurant exists, belongs to the resolved tenant, and
+        // can accept orders. This prevents a client-supplied restaurantId from
+        // bypassing tenant isolation.
+        var restaurant = await GetValidRestaurantAsync(restaurantId, tenantId, ct);
+
         // Use AsNoTracking to avoid change-tracker returning a cart from a
         // different shopper session when both services share the same DbContext.
         var cart = await db.Carts
@@ -216,7 +236,8 @@ public sealed class PublicCartService(
             .Include(c => c.Items)
             .FirstOrDefaultAsync(c =>
                 c.SessionId == sessionHash &&
-                c.RestaurantId == restaurantId,
+                c.RestaurantId == restaurantId &&
+                c.TenantId == tenantId,
             ct);
 
         if (cart is not null)
@@ -234,7 +255,34 @@ public sealed class PublicCartService(
 
         var newCart = Cart.Create(tenantId, restaurantId, null, sessionHash, utcNow);
         db.Carts.Add(newCart);
-        await db.SaveChangesAsync(ct);
+
+        try
+        {
+            await db.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException)
+        {
+            // Unique constraint on (TenantId, RestaurantId, SessionId) for active
+            // carts: a concurrent request may have created the cart first. Re-read
+            // and return the existing cart instead of failing.
+            var existing = await db.Carts
+                .Include(c => c.Items)
+                .FirstOrDefaultAsync(c =>
+                    c.SessionId == sessionHash &&
+                    c.RestaurantId == restaurantId &&
+                    c.TenantId == tenantId,
+                ct);
+
+            if (existing is not null)
+            {
+                existing.EnsureUsable(utcNow);
+                existing.Renew(utcNow);
+                await db.SaveChangesAsync(ct);
+                return existing;
+            }
+
+            throw;
+        }
 
         return await db.Carts
             .Include(c => c.Items)

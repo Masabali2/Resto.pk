@@ -150,8 +150,8 @@ public class PublicOrderServiceTests
         sessionContextMock.Setup(s => s.SessionHash).Returns("test-session-hash-123");
         var tenantContextMock = new Mock<ITenantContext>();
         tenantContextMock.Setup(t => t.HasTenant).Returns(true);
-        tenantContextMock.Setup(t => t.TenantId).Returns(It.IsAny<Guid>());
-        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(It.IsAny<Guid>());
+        tenantContextMock.Setup(t => t.TenantId).Returns(tenantId);
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
         var dateTimeProvider = new Mock<IDateTimeProvider>();
         dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.UtcNow);
 
