@@ -196,6 +196,15 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.Property<DateTime>("ExpiresAt")
                         .HasColumnType("datetime2");
 
+                    b.Property<Guid?>("RestaurantId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion");
+
                     b.Property<string>("SessionId")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -350,6 +359,9 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.Property<long>("FileSize")
                         .HasColumnType("bigint");
 
+                    b.Property<int?>("Height")
+                        .HasColumnType("int");
+
                     b.Property<string>("StorageKey")
                         .IsRequired()
                         .HasMaxLength(500)
@@ -364,6 +376,9 @@ namespace RestaurantSaaS.Infrastructure.Migrations
 
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uniqueidentifier");
+
+                    b.Property<int?>("Width")
+                        .HasColumnType("int");
 
                     b.HasKey("Id");
 
@@ -763,6 +778,74 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RestaurantSaaS.Domain.Entities.Notifications.EmailOutboxMessage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<int>("Attempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("DedupeKey")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("EventName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("HtmlBody")
+                        .IsRequired()
+                        .HasMaxLength(32768)
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("nvarchar(2000)");
+
+                    b.Property<int>("MaxAttempts")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("NextAttemptAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("RecipientEmail")
+                        .IsRequired()
+                        .HasMaxLength(254)
+                        .HasColumnType("nvarchar(254)");
+
+                    b.Property<DateTime?>("SentAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventName", "DedupeKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_EmailOutboxMessages_EventName_DedupeKey");
+
+                    b.HasIndex("Status", "NextAttemptAtUtc")
+                        .HasDatabaseName("IX_EmailOutboxMessages_Status_NextAttemptAtUtc");
+
+                    b.ToTable("EmailOutboxMessages", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantSaaS.Domain.Entities.Notifications.Notification", b =>
                 {
                     b.Property<Guid>("Id")
@@ -820,6 +903,32 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.ToTable("Notifications", (string)null);
                 });
 
+            modelBuilder.Entity("RestaurantSaaS.Domain.Entities.Notifications.NotificationDedupeKey", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("EventKey")
+                        .IsRequired()
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EventKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_NotificationDedupeKeys_EventKey");
+
+                    b.ToTable("NotificationDedupeKeys", (string)null);
+                });
+
             modelBuilder.Entity("RestaurantSaaS.Domain.Entities.Orders.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -866,6 +975,21 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<int>("OrderType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("PaymentMethod")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
+                    b.Property<int>("PaymentStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasDefaultValue(1);
+
                     b.Property<Guid>("RestaurantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -897,12 +1021,21 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("decimal(18,4)");
 
+                    b.Property<string>("TrackingTokenHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("TrackingTokenHash")
+                        .IsUnique()
+                        .HasDatabaseName("IX_Orders_TrackingTokenHash")
+                        .HasFilter("[TrackingTokenHash] IS NOT NULL");
 
                     b.HasIndex("TenantId", "OrderNumber")
                         .IsUnique()
@@ -944,8 +1077,8 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .HasColumnType("nvarchar(200)");
 
                     b.Property<decimal>("LineTotal")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.Property<Guid?>("MenuItemId")
                         .HasColumnType("uniqueidentifier");
@@ -957,8 +1090,8 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .HasColumnType("int");
 
                     b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("decimal(18,4)");
+                        .HasPrecision(18, 2)
+                        .HasColumnType("decimal(18,2)");
 
                     b.HasKey("Id");
 
@@ -1114,6 +1247,12 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("TaxRate")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 4)
+                        .HasColumnType("decimal(18,4)")
+                        .HasDefaultValue(0m);
+
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uniqueidentifier");
 
@@ -1213,6 +1352,11 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.HasIndex("SubscriptionPlanId")
                         .HasDatabaseName("IX_Subscriptions_SubscriptionPlanId");
 
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Subscriptions_TenantId_Live")
+                        .HasFilter("[Status] IN (1, 2, 3)");
+
                     b.HasIndex("Status", "EndDate")
                         .HasDatabaseName("IX_Subscriptions_Status_EndDate");
 
@@ -1233,6 +1377,11 @@ namespace RestaurantSaaS.Infrastructure.Migrations
 
                     b.Property<int>("BillingInterval")
                         .HasColumnType("int");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
@@ -1278,6 +1427,10 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                     b.HasIndex("Name")
                         .IsUnique()
                         .HasDatabaseName("UX_SubscriptionPlans_Name");
+
+                    b.HasIndex("Code", "BillingInterval")
+                        .IsUnique()
+                        .HasDatabaseName("UX_SubscriptionPlans_Code_BillingInterval");
 
                     b.HasIndex("IsActive", "BillingInterval", "Name")
                         .HasDatabaseName("IX_SubscriptionPlans_IsActive_BillingInterval_Name");
@@ -1516,6 +1669,9 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("nvarchar(1000)");
 
+                    b.Property<string>("DesignConfigurationJson")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("bit");
 
@@ -1543,7 +1699,10 @@ namespace RestaurantSaaS.Infrastructure.Migrations
                         .IsUnique()
                         .HasDatabaseName("UX_WebsiteTemplates_TemplateKey");
 
-                    b.ToTable("WebsiteTemplates", (string)null);
+                    b.ToTable("WebsiteTemplates", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_WebsiteTemplates_ValidDesignJson", "[DesignConfigurationJson] IS NULL OR ISJSON([DesignConfigurationJson]) = 1");
+                        });
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<System.Guid>", b =>

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using RestaurantSaaS.Application.Features.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Subscriptions;
 using RestaurantSaaS.Domain.Enums;
@@ -16,13 +17,20 @@ namespace RestaurantSaaS.Infrastructure.Tests;
 /// </summary>
 public sealed class SubscriptionPlanSeedingTests
 {
+    private static readonly IConfiguration TestConfiguration = new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            ["Seed:PlatformAdminPassword"] = "Test-Platform-Admin-Password-123!"
+        })
+        .Build();
+
     [Fact]
     public async Task SeedAsync_ShouldSeedTheApprovedCatalogueExactlyOnce()
     {
         var fx = TestFactory.Create();
 
-        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider());
-        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider());
+        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider(), TestConfiguration);
+        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider(), TestConfiguration);
 
         var plans = await fx.Db.SubscriptionPlans
             .AsNoTracking()
@@ -91,7 +99,7 @@ public sealed class SubscriptionPlanSeedingTests
         fx.Db.SubscriptionPlans.Add(existing);
         await fx.Db.SaveChangesAsync();
 
-        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider());
+        await DbSeeder.SeedAsync(fx.Db, new DateTimeProvider(), TestConfiguration);
 
         var plan = await fx.Db.SubscriptionPlans
             .AsNoTracking()

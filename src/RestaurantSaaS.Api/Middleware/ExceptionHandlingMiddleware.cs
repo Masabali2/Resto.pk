@@ -65,7 +65,8 @@ public sealed class HandleExceptionMiddleware(
             };
 
             await context.Response.WriteAsync(
-                JsonSerializer.Serialize(response, JsonOptions));
+                JsonSerializer.Serialize(response, JsonOptions),
+                context.RequestAborted);
         }
     }
 

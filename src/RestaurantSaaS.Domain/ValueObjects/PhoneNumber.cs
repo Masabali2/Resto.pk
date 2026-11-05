@@ -12,7 +12,11 @@ public sealed class PhoneNumber : IEquatable<PhoneNumber>
 {
     private static readonly Regex Pattern = new(
         @"^\+?[0-9\s\-()]{7,20}$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        RegexOptions.Compiled | RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(100));
+
+    /// <summary>Maximum input length accepted by the regex (optional '+' plus 20 characters).</summary>
+    private const int MaxRegexInputLength = 21;
 
     public const int MaxStoredLength = 30;
 
@@ -26,11 +30,16 @@ public sealed class PhoneNumber : IEquatable<PhoneNumber>
         if (string.IsNullOrWhiteSpace(raw))
             throw new DomainException("PHONE_REQUIRED", "A phone number is required.");
 
-        if (!Pattern.IsMatch(raw.Trim()))
+        var trimmed = raw.Trim();
+
+        if (trimmed.Length > MaxRegexInputLength)
             throw new DomainException("PHONE_INVALID", "Phone number format is not valid.");
 
-        var plus = raw.Trim().StartsWith("+", StringComparison.Ordinal);
-        var digits = new string(raw.Where(char.IsDigit).ToArray());
+        if (!Pattern.IsMatch(trimmed))
+            throw new DomainException("PHONE_INVALID", "Phone number format is not valid.");
+
+        var plus = trimmed.StartsWith("+", StringComparison.Ordinal);
+        var digits = new string(trimmed.Where(char.IsDigit).ToArray());
 
         if (digits.Length is < 7 or > 15) // E.164 limit
             throw new DomainException("PHONE_INVALID", "Phone number must contain 7 to 15 digits.");

@@ -22,6 +22,8 @@ public class Restaurant : AuditableEntity, ITenantOwned, ISoftDeletable
 
     public string TimeZone { get; private set; } = "Asia/Karachi";
 
+    public decimal TaxRate { get; private set; }
+
     public RestaurantStatus Status { get; private set; } = RestaurantStatus.Draft;
 
     public bool IsDeleted { get; set; }
@@ -43,7 +45,8 @@ public class Restaurant : AuditableEntity, ITenantOwned, ISoftDeletable
         PhoneNumber? phone = null,
         EmailAddress? email = null,
         string? description = null,
-        string timeZone = "Asia/Karachi")
+        string timeZone = "Asia/Karachi",
+        decimal taxRate = 0m)
     {
         if (tenantId == Guid.Empty)
             throw new DomainException(
@@ -69,6 +72,8 @@ public class Restaurant : AuditableEntity, ITenantOwned, ISoftDeletable
                 "RESTAURANT_TIMEZONE_REQUIRED",
                 "Restaurant time zone is required.");
 
+        ValidateTaxRate(taxRate);
+
         return new Restaurant
         {
             TenantId = tenantId,
@@ -83,9 +88,23 @@ public class Restaurant : AuditableEntity, ITenantOwned, ISoftDeletable
             Phone = phone?.Value,
             Email = email?.Value,
             TimeZone = timeZone.Trim(),
+            TaxRate = taxRate,
             Status = RestaurantStatus.Draft,
             CreatedAt = DateTime.UtcNow
         };
+    }
+
+    public void SetTaxRate(decimal taxRate)
+    {
+        EnsureNotDeleted();
+
+        ValidateTaxRate(taxRate);
+
+        if (TaxRate == taxRate)
+            return;
+
+        TaxRate = taxRate;
+        UpdatedAt = DateTime.UtcNow;
     }
 
     public void UpdateProfile(
@@ -188,5 +207,18 @@ public class Restaurant : AuditableEntity, ITenantOwned, ISoftDeletable
             throw new DomainException(
                 "RESTAURANT_DELETED",
                 "A deleted restaurant cannot be modified.");
+    }
+
+    private static void ValidateTaxRate(decimal taxRate)
+    {
+        if (taxRate < 0m || taxRate > 100m)
+            throw new DomainException(
+                "RESTAURANT_TAX_RATE_OUT_OF_RANGE",
+                "Tax rate must be between 0 and 100 percent.");
+
+        if (decimal.Round(taxRate, 4) != taxRate)
+            throw new DomainException(
+                "RESTAURANT_TAX_RATE_PRECISION",
+                "Tax rate supports at most four decimal places.");
     }
 }

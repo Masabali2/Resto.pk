@@ -16,7 +16,8 @@ public sealed class EmailAddress : IEquatable<EmailAddress>
     // Deliberately pragmatic RFC-5322-lite pattern; deliverability is proven by verification, not regex.
     private static readonly Regex Pattern = new(
         @"^[^@\s]+@[^@\s]+\.[^@\s]{2,}$",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant);
+        RegexOptions.Compiled | RegexOptions.CultureInvariant,
+        TimeSpan.FromMilliseconds(100));
 
     public const int MaxLength = 256;
 

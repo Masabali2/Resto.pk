@@ -90,6 +90,11 @@ public sealed class AssetsController : ControllerBase
         if (string.IsNullOrWhiteSpace(storageKey))
             return NotFound();
 
+        // Upload and presigned URLs escape the storage key (for example the
+        // path separators become %2F). Route values are not always decoded by
+        // the host, so normalize before looking the file up.
+        var lookupKey = Uri.UnescapeDataString(storageKey);
+
         var userId = GetUserId();
         if (userId is null)
             return Unauthorized();
@@ -107,12 +112,12 @@ public sealed class AssetsController : ControllerBase
         FileMetadata? file;
         try
         {
-            file = Guid.TryParse(storageKey, out var fileId)
+            file = Guid.TryParse(lookupKey, out var fileId)
                 ? await _db.Files.FirstOrDefaultAsync(
                     f => f.Id == fileId && f.DeletedAt == null,
                     cancellationToken)
                 : await _db.Files.FirstOrDefaultAsync(
-                    f => f.StorageKey == storageKey && f.DeletedAt == null,
+                    f => f.StorageKey == lookupKey && f.DeletedAt == null,
                     cancellationToken);
         }
         finally
@@ -137,8 +142,23 @@ public sealed class AssetsController : ControllerBase
 
         // Section settings and branding references store the immutable file id;
         // the physical storage key is resolved from the tracked file record.
-        var stream = await _storage.ReadAsync(file.StorageKey, cancellationToken);
-        return File(stream, file.ContentType, file.FileName);
+        // Metadata can outlive the physical bytes (for example after an
+        // out-of-band storage cleanup), so a missing file is reported as 404
+        // instead of leaking an exception as 500.
+        Stream stream;
+        try
+        {
+            stream = await _storage.ReadAsync(file.StorageKey, cancellationToken);
+        }
+        catch (FileNotFoundException)
+        {
+            return NotFound();
+        }
+
+        // Render inline so the response can be used directly by an <img>
+        // element instead of being treated as a file download.
+        Response.Headers.ContentDisposition = "inline";
+        return File(stream, file.ContentType, enableRangeProcessing: true);
     }
 
     private Guid? GetUserId()

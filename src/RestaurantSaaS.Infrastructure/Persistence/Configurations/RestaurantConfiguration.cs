@@ -49,6 +49,11 @@ public sealed class RestaurantConfiguration
             .IsRequired()
             .HasMaxLength(64);
 
+        builder.Property(r => r.TaxRate)
+            .HasPrecision(18, 4)
+            .IsRequired()
+            .HasDefaultValue(0m);
+
         builder.Property(r => r.Status)
             .IsRequired()
             .HasConversion<int>();

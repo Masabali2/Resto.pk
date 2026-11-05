@@ -1,6 +1,7 @@
 
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Entities.Orders;
 
 namespace RestaurantSaaS.Infrastructure.Persistence.Configurations;
@@ -82,6 +83,21 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
             .HasMaxLength(3)
             .IsFixedLength();
 
+        builder.Property(o => o.OrderType)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(OrderType.Pickup);
+
+        builder.Property(o => o.PaymentMethod)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(PaymentMethod.Cash);
+
+        builder.Property(o => o.PaymentStatus)
+            .IsRequired()
+            .HasConversion<int>()
+            .HasDefaultValue(PaymentStatus.Pending);
+
         builder.Property(o => o.CompletedAt);
 
         builder.Property(o => o.CancelledAt);
@@ -93,6 +109,19 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
 
         builder.Property(o => o.RowVersion)
             .IsRowVersion();
+
+        builder.Property(o => o.TrackingTokenHash)
+            .HasMaxLength(64)
+            .IsRequired(false);
+
+        builder.HasIndex(o => o.TrackingTokenHash)
+            .HasDatabaseName("IX_Orders_TrackingTokenHash")
+            .IsUnique()
+            .HasFilter("[TrackingTokenHash] IS NOT NULL");
+
+        builder.Navigation(o => o.Items)
+            .HasField("_items")
+            .UsePropertyAccessMode(PropertyAccessMode.Field);
 
         builder.HasIndex(o => new { o.TenantId, o.OrderNumber })
             .IsUnique()

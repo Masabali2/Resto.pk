@@ -1,0 +1,32 @@
+
+name: .NET Backend CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout backend repository
+        uses: actions/checkout@v4
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore dependencies
+        run: dotnet restore ./RestaurantSaaS.slnx
+
+      - name: Build solution
+        run: dotnet build ./RestaurantSaaS.slnx --configuration Release --no-restore
+
+      - name: Run tests
+        run: dotnet test ./RestaurantSaaS.slnx --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"
