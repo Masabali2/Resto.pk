@@ -13,30 +13,6 @@ jobs:
     name: Build and Test
     runs-on: ubuntu-latest
 
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: "Y"
-          MSSQL_PID: Developer
-          MSSQL_SA_PASSWORD: "CiOnly_StrongPassword123!"
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'CiOnly_StrongPassword123!' -C -Q 'SELECT 1' || exit 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-          --health-start-period 30s
-
-    env:
-      RESTO_SQLSERVER_TEST_CONNECTION: "Server=localhost,1433;Database=RestaurantSaaS_ConcurrencyTests;User Id=sa;Password=CiOnly_StrongPassword123!;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-      ConnectionStrings__DefaultConnection: "Server=localhost,1433;Database=RestaurantSaaS_ConcurrencyTests;User Id=sa;Password=CiOnly_StrongPassword123!;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
-      Jwt__Issuer: "resto-ci"
-      Jwt__Audience: "resto-ci"
-      Jwt__Secret: "CI_ONLY_RESTO_JWT_SECRET_KEY_FOR_TESTING_ONLY_32_CHARS_MINIMUM"
-      DOTNET_SYSTEM_GLOBALIZATION_INVARIANT: "0"
-
     steps:
       - name: Checkout backend repository
         uses: actions/checkout@v4
@@ -51,20 +27,6 @@ jobs:
 
       - name: Build solution
         run: dotnet build ./RestaurantSaaS.slnx --configuration Release --no-restore
-
-      - name: Install Entity Framework Core CLI
-        run: |
-          dotnet tool install --global dotnet-ef --version 10.0.13
-          echo "$HOME/.dotnet/tools" >> "$GITHUB_PATH"
-
-      - name: Apply database migrations
-        run: >
-          dotnet ef database update
-          --project ./src/RestaurantSaaS.Infrastructure/RestaurantSaaS.Infrastructure.csproj
-          --startup-project ./src/RestaurantSaaS.Api/RestaurantSaaS.Api.csproj
-          --context ApplicationDbContext
-          --configuration Release
-          --no-build
 
       - name: Run tests
         run: dotnet test ./RestaurantSaaS.slnx --configuration Release --no-build --no-restore --logger "console;verbosity=minimal"
