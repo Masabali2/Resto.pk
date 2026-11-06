@@ -10,13 +10,19 @@ namespace RestaurantSaaS.Api.Tests;
 /// Test host for HTTP integration tests.
 ///
 /// Sets required environment variables so Program.cs can start without
-/// user-secrets, then overrides the DbContext to use InMemory.
+/// user-secrets, then overrides the DbContext to use InMemory with a unique
+/// database name per fixture to avoid cross-test contamination.
 /// </summary>
 public class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
+    private readonly string _databaseName;
+
     public TestWebApplicationFactory()
     {
+        _databaseName = $"resto-test-{Guid.NewGuid():N}";
+
         // Set required environment variables before the host builds
+        Environment.SetEnvironmentVariable("ASPNETCORE_ENVIRONMENT", "Testing");
         Environment.SetEnvironmentVariable("ShopperSession__Secret", "this-is-a-test-secret-key-that-is-at-least-32-chars-long!");
         Environment.SetEnvironmentVariable("ShopperSession__LifetimeHours", "24");
         Environment.SetEnvironmentVariable("ShopperSession__SameSite", "Lax");
@@ -44,14 +50,18 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureServices(services =>
         {
             // Replace SQL Server DbContext with InMemory for testing
-            var descriptors = services
-                .Where(d => d.ServiceType == typeof(DbContextOptions<ApplicationDbContext>))
+            // Remove every ApplicationDbContext-related registration so
+            // Program.cs's TryAdd won't leave a duplicate provider.
+            var toRemove = services
+                .Where(d =>
+                    d.ServiceType == typeof(DbContextOptions<ApplicationDbContext>)
+                    || d.ServiceType == typeof(ApplicationDbContext))
                 .ToList();
-            foreach (var descriptor in descriptors)
+            foreach (var descriptor in toRemove)
                 services.Remove(descriptor);
 
             services.AddDbContext<ApplicationDbContext>(options =>
-                options.UseInMemoryDatabase("RestoTest"));
+                options.UseInMemoryDatabase(_databaseName));
         });
     }
 
@@ -61,4 +71,6 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         var scope = scopeFactory.CreateScope();
         return scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     }
+
+    public string DatabaseName => _databaseName;
 }

@@ -153,7 +153,7 @@ builder.Services
 
 builder.Services.AddScoped<FluentValidationActionFilter>();
 
-builder.Services.AddControllers(options =>
+builder.Services.AddControllersWithViews(options =>
     options.Filters.Add<FluentValidationActionFilter>());
 
 var app = builder.Build();
@@ -204,9 +204,24 @@ app.MapControllers();
 app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext context) =>
 {
     antiforgery.GetAndStoreTokens(context);
-    var token = context.Request.Cookies["XSRF-TOKEN"];
+    var token = ExtractAntiforgeryTokenFromResponse(context, "XSRF-TOKEN");
     return Results.Ok(new { token });
 });
+
+static string? ExtractAntiforgeryTokenFromResponse(HttpContext context, string cookieName)
+{
+    var setCookieValues = context.Response.Headers["Set-Cookie"];
+    foreach (var value in setCookieValues)
+    {
+        if (value.StartsWith($"{cookieName}=", StringComparison.Ordinal))
+        {
+            var cookiePart = value[(cookieName.Length + 1)..];
+            var semicolon = cookiePart.IndexOf(';');
+            return semicolon >= 0 ? cookiePart[..semicolon] : cookiePart;
+        }
+    }
+    return null;
+}
 
 await app.RunAsync();
 
