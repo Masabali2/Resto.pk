@@ -87,19 +87,28 @@ public sealed class StaffOrderService(
         Guid changedByUserId,
         CancellationToken ct = default)
     {
-        await GetActiveTenantIdAsync(Permissions.OrderUpdate, ct);
+        await GetActiveTenantIdAsync(
+            Permissions.OrderUpdate,
+            ct,
+            request.NewStatus == OrderStatus.Cancelled ? Permissions.OrderCancel : null);
 
         var order = await LoadOwnedOrderAsync(restaurantId, orderId, ct)
             ?? throw new NotFoundException("Order", orderId);
 
         var utcNow = dateTimeProvider.UtcNow;
 
-        order.TransitionTo(request.NewStatus, changedByUserId, request.Notes, utcNow);
+        var history = order.TransitionTo(
+            request.NewStatus,
+            changedByUserId,
+            request.Notes,
+            utcNow);
 
-        // RowVersion is not a logical concurrency token for this use case;
-        // exclude it from the UPDATE to avoid provider-specific byte[]
-        // comparison issues with InMemory databases in tests.
-        db.Entry(order).Property(nameof(Order.RowVersion)).IsModified = false;
+        // The history entity has a client-generated Guid key. When it is
+        // discovered through the navigation of an already-tracked order,
+        // EF Core attaches it as Modified (assuming it already exists) and
+        // the subsequent UPDATE affects no rows. Track it explicitly as a
+        // new row so the INSERT is issued.
+        db.OrderStatusHistories.Add(history);
 
         await db.SaveChangesAsync(ct);
 
@@ -114,7 +123,10 @@ public sealed class StaffOrderService(
     /// Resolves + validates the acting tenant: context present, membership ACTIVE,
     /// role grants the required permission, and tenant operational.
     /// </summary>
-    private async Task<Guid> GetActiveTenantIdAsync(string requiredPermission, CancellationToken ct)
+    private async Task<Guid> GetActiveTenantIdAsync(
+        string requiredPermission,
+        CancellationToken ct,
+        string? additionalPermission = null)
     {
         var userId = currentUser.UserId ?? throw new NotAuthenticatedException();
         var tenantId = tenantContext.GetRequiredTenantId();
@@ -126,7 +138,8 @@ public sealed class StaffOrderService(
             throw new CrossTenantAccessException();
 
         if (!Permissions.RolePermissions.TryGetValue(membership.RoleName, out var perms) ||
-            !perms.Contains(requiredPermission))
+            !perms.Contains(requiredPermission) ||
+            (additionalPermission is not null && !perms.Contains(additionalPermission)))
         {
             throw new ForbiddenException($"Your role '{membership.RoleName}' cannot perform this operation.");
         }
@@ -153,8 +166,12 @@ public sealed class StaffOrderService(
         if (order.TenantId != tenantId)
             throw new CrossTenantAccessException();
 
+        // An order from the same tenant but a different restaurant must be
+        // indistinguishable from a missing order. Returning null here yields
+        // 404 instead of 403, so the endpoint does not reveal that the order
+        // exists under another restaurant.
         if (order.RestaurantId != restaurantId)
-            throw new CrossTenantAccessException();
+            return null;
 
         return order;
     }

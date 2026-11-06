@@ -60,7 +60,7 @@ public class PublicOrdersControllerTests
             .ReturnsAsync(restaurant);
 
         var expectedResponse = new CreatePublicOrderResponse(
-            Guid.NewGuid(), "ORD-123", OrderStatus.New, 1044m, "PKR",
+            Guid.NewGuid(), "ORD-123", OrderStatus.New, OrderType.Pickup, 1044m, "PKR",
             "raw-token-123",
             new List<PublicOrderItemDto>(), DateTime.UtcNow);
 
@@ -113,7 +113,7 @@ public class PublicOrdersControllerTests
             .ReturnsAsync(restaurant);
 
         var expectedResponse = new CreatePublicOrderResponse(
-            Guid.NewGuid(), "ORD-DIRECT-123", OrderStatus.New, 1044m, "PKR",
+            Guid.NewGuid(), "ORD-DIRECT-123", OrderStatus.New, OrderType.Delivery, 1044m, "PKR",
             "raw-direct-token-456",
             new List<PublicOrderItemDto>(), DateTime.UtcNow);
 

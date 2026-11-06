@@ -86,16 +86,19 @@ public sealed class OrderConfiguration : IEntityTypeConfiguration<Order>
         builder.Property(o => o.OrderType)
             .IsRequired()
             .HasConversion<int>()
+            .HasSentinel((OrderType)0)
             .HasDefaultValue(OrderType.Pickup);
 
         builder.Property(o => o.PaymentMethod)
             .IsRequired()
             .HasConversion<int>()
+            .HasSentinel((PaymentMethod)0)
             .HasDefaultValue(PaymentMethod.Cash);
 
         builder.Property(o => o.PaymentStatus)
             .IsRequired()
             .HasConversion<int>()
+            .HasSentinel((PaymentStatus)0)
             .HasDefaultValue(PaymentStatus.Pending);
 
         builder.Property(o => o.CompletedAt);

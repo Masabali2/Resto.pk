@@ -18,6 +18,7 @@ using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Seed;
 using Serilog;
 using System.Text;
+using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -40,9 +41,10 @@ builder.Services.AddCors(options =>
 
 builder.Services.AddAntiforgery(options =>
 {
-    options.Cookie.Name = "XSRF-TOKEN";
-    options.Cookie.HttpOnly = false;
+    options.Cookie.Name = "Resto.Antiforgery";
+    options.Cookie.HttpOnly = true;
     options.Cookie.SameSite = SameSiteMode.Lax;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
     options.Cookie.Path = "/";
     options.HeaderName = "X-XSRF-TOKEN";
 });
@@ -153,8 +155,11 @@ builder.Services
 
 builder.Services.AddScoped<FluentValidationActionFilter>();
 
-builder.Services.AddControllers(options =>
-    options.Filters.Add<FluentValidationActionFilter>());
+builder.Services
+    .AddControllersWithViews(options =>
+        options.Filters.Add<FluentValidationActionFilter>())
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 
 var app = builder.Build();
 
@@ -203,9 +208,8 @@ app.MapControllers();
 
 app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext context) =>
 {
-    antiforgery.GetAndStoreTokens(context);
-    var token = context.Request.Cookies["XSRF-TOKEN"];
-    return Results.Ok(new { token });
+    var tokens = antiforgery.GetAndStoreTokens(context);
+    return Results.Ok(new { token = tokens.RequestToken });
 });
 
 await app.RunAsync();

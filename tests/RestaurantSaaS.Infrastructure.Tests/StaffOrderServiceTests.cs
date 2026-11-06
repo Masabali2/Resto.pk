@@ -206,7 +206,7 @@ public class StaffOrderServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_WrongRestaurant_ThrowsCrossTenantAccessException()
+    public async Task GetByIdAsync_WrongRestaurant_ReturnsNull()
     {
         var tenantContextMock = new Mock<ITenantContext>();
         var currentUserMock = new Mock<ICurrentUserService>();
@@ -219,9 +219,11 @@ public class StaffOrderServiceTests
         var wrongRestaurantId = Guid.NewGuid();
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var act = () => service.GetByIdAsync(wrongRestaurantId, orderId);
+        var result = await service.GetByIdAsync(wrongRestaurantId, orderId);
 
-        await act.Should().ThrowAsync<CrossTenantAccessException>();
+        // Same tenant, different restaurant: behave as if the order is missing
+        // so the endpoint returns 404 without revealing its existence.
+        result.Should().BeNull();
     }
 
     [Fact]
@@ -299,7 +301,7 @@ public class StaffOrderServiceTests
     }
 
     [Fact]
-    public async Task TransitionStatusAsync_WrongRestaurant_ThrowsCrossTenantAccessException()
+    public async Task TransitionStatusAsync_WrongRestaurant_ThrowsNotFound()
     {
         var tenantContextMock = new Mock<ITenantContext>();
         var currentUserMock = new Mock<ICurrentUserService>();
@@ -318,7 +320,7 @@ public class StaffOrderServiceTests
             new UpdateOrderStatusRequest(OrderStatus.Confirmed, null),
             userId);
 
-        await act.Should().ThrowAsync<CrossTenantAccessException>();
+        await act.Should().ThrowAsync<NotFoundException>();
     }
 
     [Fact]
@@ -344,6 +346,33 @@ public class StaffOrderServiceTests
             restaurantId,
             orderId,
             new UpdateOrderStatusRequest(OrderStatus.Confirmed, null),
+            userId);
+
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task TransitionStatusAsync_KitchenCannotCancelOrder()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 1);
+
+        membershipMock.Setup(m => m.GetMembershipAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TenantMembershipInfo(
+                Guid.NewGuid(), tenantId, "Test Tenant", "test-tenant",
+                Guid.NewGuid(), Permissions.TenantRoles.Kitchen, (int)MembershipStatus.Active));
+
+        var orderId = GetFirstOrderId(options, tenantId);
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.TransitionStatusAsync(
+            restaurantId,
+            orderId,
+            new UpdateOrderStatusRequest(OrderStatus.Cancelled, "Customer requested cancellation"),
             userId);
 
         await act.Should().ThrowAsync<ForbiddenException>();

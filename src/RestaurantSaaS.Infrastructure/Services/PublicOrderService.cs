@@ -256,6 +256,7 @@ public sealed class PublicOrderService(
             order.Id,
             order.OrderNumber,
             order.Status,
+            order.OrderType,
             order.TotalAmount,
             order.Currency,
             rawTrackingToken,

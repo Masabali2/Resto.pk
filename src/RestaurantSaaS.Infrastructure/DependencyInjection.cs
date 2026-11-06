@@ -2,6 +2,7 @@
 using FluentValidation;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.InMemory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RestaurantSaaS.Api.Services.Authentication;
@@ -28,12 +29,17 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var connectionString = configuration.GetConnectionString("DefaultConnection")
-            ?? throw new InvalidOperationException(
-                "Connection string 'DefaultConnection' is not configured.");
-
-        services.AddDbContext<ApplicationDbContext>(options =>
-            options.UseSqlServer(connectionString));
+        var connectionString = configuration.GetConnectionString("DefaultConnection");
+        if (configuration.GetValue<string>("ASPNETCORE_ENVIRONMENT") == "Testing")
+        {
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseInMemoryDatabase("Test"));
+        }
+        else
+        {
+            services.AddDbContext<ApplicationDbContext>(options =>
+                options.UseSqlServer(connectionString));
+        }
 
         services.AddIdentityCore<User>(options =>
         {
@@ -91,8 +97,8 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<ITenantMembershipService, TenantMembershipService>();
-        services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<ITenantResolver, PublicTenantResolver>();
+        services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();

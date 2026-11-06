@@ -3,6 +3,7 @@ using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 
 namespace RestaurantSaaS.Infrastructure.Tenancy;
 
@@ -16,31 +17,63 @@ public sealed class PublicTenantResolver(
 
     public async Task<Guid?> ResolveAsync(CancellationToken cancellationToken = default)
     {
-        // Public resolver is for ANONYMOUS traffic only — authenticated dashboard
-        // traffic must go through AuthenticatedTenantResolver (membership-checked).
-        if (currentUser.IsAuthenticated)
-            return null;
-
         var http = httpContextAccessor.HttpContext;
         if (http is null)
             return null;
 
-        string? slug = ExtractSubdomainLabel(http.Request.Host.Host);
+        var isPublicWebsiteRequest =
+            http.Request.Path.StartsWithSegments("/api/v1/public");
 
-        if (slug is null &&
-            http.Request.Query.TryGetValue("tenantSlug", out var q) &&
-            !string.IsNullOrWhiteSpace(q.ToString()))
-        {
-            slug = Domain.Entities.Tenants.Tenant.NormalizeSlug(q.ToString());
-        }
-
-        if (slug is null)
+        // Dashboard traffic must use the membership-checked resolver. Public
+        // website requests are still resolved from their website slug when a
+        // visitor also has an authenticated staff session.
+        if (currentUser.IsAuthenticated && !isPublicWebsiteRequest)
             return null;
 
         var previous = db.DisableTenantFilters;
         db.DisableTenantFilters = true; // pre-trust lookup by design: no tenant context yet
         try
         {
+            // A public endpoint identifies its tenant by the published
+            // website slug in the route, never by a client-supplied tenant id.
+            var websiteSlug = http.GetRouteValue("slug")?.ToString();
+            if (!string.IsNullOrWhiteSpace(websiteSlug))
+            {
+                var normalizedWebsiteSlug =
+                    Domain.Entities.Websites.Website.NormalizeSlug(websiteSlug);
+
+                var websiteTenantId = await db.Websites.AsNoTracking()
+                    .Where(w => w.Slug == normalizedWebsiteSlug &&
+                                w.IsPublished &&
+                                w.Status == WebsiteStatus.Published)
+                    .Select(w => w.TenantId)
+                    .FirstOrDefaultAsync(cancellationToken);
+
+                if (websiteTenantId != Guid.Empty)
+                {
+                    var tenantIsActive = await db.Tenants.AsNoTracking()
+                        .AnyAsync(t => t.Id == websiteTenantId &&
+                                       t.Status == TenantStatus.Active &&
+                                       !t.IsDeleted,
+                            cancellationToken);
+
+                    if (tenantIsActive)
+                        return websiteTenantId;
+                }
+            }
+
+            var slug = ExtractSubdomainLabel(http.Request.Host.Host);
+
+            if (slug is null &&
+                http.Request.Query.TryGetValue("tenantSlug", out var q) &&
+                !string.IsNullOrWhiteSpace(q.ToString()))
+            {
+                slug = Domain.Entities.Tenants.Tenant.NormalizeSlug(q.ToString());
+            }
+
+            if (slug is null)
+                return null;
+
             var tenantId = await db.Tenants.AsNoTracking()
                 .Where(t => t.Slug == slug && t.Status == TenantStatus.Active && !t.IsDeleted)
                 .Select(t => t.Id)

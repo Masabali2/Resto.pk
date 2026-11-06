@@ -93,6 +93,94 @@ public class PublicCartServiceTests
         return db;
     }
 
+    private static ApplicationDbContext CreateInMemoryDbWithTwoTenants(
+        out Guid tenantAId,
+        out Guid restaurantAId,
+        out Guid menuItemIdA,
+        out Guid tenantBId,
+        out Guid restaurantBId,
+        out Guid menuItemIdB,
+        out string sessionHash)
+    {
+        var options = new Microsoft.EntityFrameworkCore.DbContextOptionsBuilder<ApplicationDbContext>()
+            .UseInMemoryDatabase(Guid.NewGuid().ToString())
+            .ConfigureWarnings(w => w.Ignore(
+                Microsoft.EntityFrameworkCore.Diagnostics.InMemoryEventId.TransactionIgnoredWarning))
+            .Options;
+
+        var now = DateTime.UtcNow;
+        sessionHash = "shared-session-hash-456";
+
+        // Tenant A
+        var tenantA = Tenant.Create("Tenant A", "tenant-a");
+        tenantA.ChangeStatus(TenantStatus.Active);
+        tenantAId = tenantA.Id;
+
+        var addressA = Address.Create("123 Test St", "Karachi", "Pakistan");
+        var restaurantA = Restaurant.Create(tenantA.Id, "Restaurant A", addressA, taxRate: 16m);
+        restaurantA.ChangeStatus(RestaurantStatus.Active);
+        restaurantAId = restaurantA.Id;
+
+        var subscriptionA = Subscription.Start(
+            tenantAId,
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            now.AddDays(-1),
+            now.AddDays(30));
+
+        var menuA = Menu.Create(tenantAId, restaurantAId, "Main Menu");
+        menuA.SetActive(true);
+        menuA.Publish(1);
+        var categoryA = MenuCategory.Create(menuA.Id, "Main");
+        var menuItemA = MenuItem.Create(categoryA.Id, "Burger A", Money.New(450m));
+        menuItemIdA = menuItemA.Id;
+
+        // Tenant B
+        var tenantB = Tenant.Create("Tenant B", "tenant-b");
+        tenantB.ChangeStatus(TenantStatus.Active);
+        tenantBId = tenantB.Id;
+
+        var addressB = Address.Create("456 Test St", "Lahore", "Pakistan");
+        var restaurantB = Restaurant.Create(tenantB.Id, "Restaurant B", addressB, taxRate: 10m);
+        restaurantB.ChangeStatus(RestaurantStatus.Active);
+        restaurantBId = restaurantB.Id;
+
+        var subscriptionB = Subscription.Start(
+            tenantBId,
+            Guid.Parse("22222222-2222-2222-2222-222222222222"),
+            now.AddDays(-1),
+            now.AddDays(30));
+
+        var menuB = Menu.Create(tenantBId, restaurantBId, "Main Menu");
+        menuB.SetActive(true);
+        menuB.Publish(1);
+        var categoryB = MenuCategory.Create(menuB.Id, "Main");
+        var menuItemB = MenuItem.Create(categoryB.Id, "Burger B", Money.New(350m));
+        menuItemIdB = menuItemB.Id;
+
+        var mockDateTimeProvider = new Mock<IDateTimeProvider>();
+        mockDateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
+
+        var tenantContextForDb = new Mock<ITenantContext>();
+        tenantContextForDb.Setup(t => t.HasTenant).Returns(true);
+        tenantContextForDb.Setup(t => t.TenantId).Returns(tenantAId);
+        tenantContextForDb.Setup(t => t.GetRequiredTenantId()).Returns(tenantAId);
+
+        var db = new ApplicationDbContext(
+            options,
+            tenantContextForDb.Object,
+            mockDateTimeProvider.Object);
+
+        db.Tenants.AddRange(tenantA, tenantB);
+        db.Restaurants.AddRange(restaurantA, restaurantB);
+        db.Subscriptions.AddRange(subscriptionA, subscriptionB);
+        db.Menus.AddRange(menuA, menuB);
+        db.MenuCategories.AddRange(categoryA, categoryB);
+        db.MenuItems.AddRange(menuItemA, menuItemB);
+
+        db.SaveChanges();
+        return db;
+    }
+
     private static PublicCartService CreateService(
         ApplicationDbContext db,
         Guid tenantId,
@@ -278,21 +366,6 @@ public class PublicCartServiceTests
     }
 
     [Fact]
-    public async Task GetCurrentCartAsync_DifferentRestaurant_IndependentCart()
-    {
-        var sessionHash = "session-shared-across-restaurants";
-        using var db = CreateInMemoryDb(out var tenantId, out var restaurantIdA, out var menuItemId, out sessionHash);
-        var service = CreateService(db, tenantId);
-
-        // Add item to restaurant A using a real menu item
-        await service.AddItemAsync(restaurantIdA, new AddPublicCartItemRequest(menuItemId, 1));
-
-        // Same session, different restaurant B → independent empty cart
-        var cartB = await service.GetCurrentCartAsync(Guid.NewGuid());
-        cartB.ItemCount.Should().Be(0);
-    }
-
-    [Fact]
     public async Task GetCurrentCartAsync_MissingSessionHash_ThrowsNotAuthenticated()
     {
         using var db = CreateInMemoryDb(out var tenantId, out var restaurantId, out _, out _);
@@ -307,35 +380,153 @@ public class PublicCartServiceTests
     }
 
     [Fact]
-    public async Task AddItemAsync_CartFromOtherTenant_Rejects()
+    public async Task AddItemAsync_CrossTenantRead_ThrowsCrossTenantAccessException()
     {
-        // This test verifies that the service enforces tenant isolation via ITenantContext.
-        // The ITenantContext mock resolves a specific tenantId; any cart query
-        // filters by that tenantId, so carts from other tenants are invisible.
-        using var db = CreateInMemoryDb(out var tenantId, out var restaurantId, out var menuItemId, out _);
-        var service = CreateService(db, tenantId);
+        // Arrange: Two distinct tenants, each with their own restaurant.
+        using var db = CreateInMemoryDbWithTwoTenants(
+            out Guid tenantAId, out Guid restaurantAId, out Guid menuItemIdA,
+            out Guid tenantBId, out Guid restaurantBId, out Guid menuItemIdB,
+            out string sessionHash);
 
-        // Add item normally using a real menu item
-        var item = await service.AddItemAsync(restaurantId, new AddPublicCartItemRequest(menuItemId, 1));
-        item.Should().NotBeNull();
+        // Tenant A creates a cart and adds an item
+        var sessionContextA = new Mock<IShopperSessionContext>();
+        sessionContextA.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextA = new Mock<ITenantContext>();
+        tenantContextA.Setup(t => t.HasTenant).Returns(true);
+        tenantContextA.Setup(t => t.TenantId).Returns(tenantAId);
+        tenantContextA.Setup(t => t.GetRequiredTenantId()).Returns(tenantAId);
+        var serviceA = CreateService(db, tenantAId, sessionContextA, tenantContextA);
 
-        // Verify cart belongs to the tenant resolved by ITenantContext
-        var cart = await service.GetCurrentCartAsync(restaurantId);
-        cart.Should().NotBeNull();
+        await serviceA.AddItemAsync(restaurantAId, new AddPublicCartItemRequest(menuItemIdA, 1));
+
+        // Tenant B attempts to read Tenant A's cart using the same session hash
+        var sessionContextB = new Mock<IShopperSessionContext>();
+        sessionContextB.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextB = new Mock<ITenantContext>();
+        tenantContextB.Setup(t => t.HasTenant).Returns(true);
+        tenantContextB.Setup(t => t.TenantId).Returns(tenantBId);
+        tenantContextB.Setup(t => t.GetRequiredTenantId()).Returns(tenantBId);
+        var serviceB = CreateService(db, tenantBId, sessionContextB, tenantContextB);
+
+        // Act & Assert: Tenant B cannot read Tenant A's cart
+        var act = () => serviceB.GetCurrentCartAsync(restaurantAId);
+        await act.Should().ThrowAsync<NotFoundException>();
     }
 
     [Fact]
-    public async Task GetCurrentCartAsync_SameSession_DifferentRestaurantIds_AreIndependent()
+    public async Task AddItemAsync_CrossTenantUpdate_ThrowsCrossTenantAccessException()
+    {
+        // Arrange: Two distinct tenants, each with their own restaurant.
+        using var db = CreateInMemoryDbWithTwoTenants(
+            out Guid tenantAId, out Guid restaurantAId, out Guid menuItemIdA,
+            out Guid tenantBId, out Guid restaurantBId, out Guid menuItemIdB,
+            out string sessionHash);
+
+        // Tenant A creates a cart with an item
+        var sessionContextA = new Mock<IShopperSessionContext>();
+        sessionContextA.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextA = new Mock<ITenantContext>();
+        tenantContextA.Setup(t => t.HasTenant).Returns(true);
+        tenantContextA.Setup(t => t.TenantId).Returns(tenantAId);
+        tenantContextA.Setup(t => t.GetRequiredTenantId()).Returns(tenantAId);
+        var serviceA = CreateService(db, tenantAId, sessionContextA, tenantContextA);
+
+        var added = await serviceA.AddItemAsync(restaurantAId, new AddPublicCartItemRequest(menuItemIdA, 1));
+
+        // Tenant B attempts to update Tenant A's cart item
+        var sessionContextB = new Mock<IShopperSessionContext>();
+        sessionContextB.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextB = new Mock<ITenantContext>();
+        tenantContextB.Setup(t => t.HasTenant).Returns(true);
+        tenantContextB.Setup(t => t.TenantId).Returns(tenantBId);
+        tenantContextB.Setup(t => t.GetRequiredTenantId()).Returns(tenantBId);
+        var serviceB = CreateService(db, tenantBId, sessionContextB, tenantContextB);
+
+        // Act & Assert: Tenant B cannot update Tenant A's cart item
+        var act = () => serviceB.UpdateItemAsync(restaurantAId, added.Id, new UpdatePublicCartItemRequest(5));
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task AddItemAsync_CrossTenantRemove_ThrowsCrossTenantAccessException()
+    {
+        // Arrange: Two distinct tenants, each with their own restaurant.
+        using var db = CreateInMemoryDbWithTwoTenants(
+            out Guid tenantAId, out Guid restaurantAId, out Guid menuItemIdA,
+            out Guid tenantBId, out Guid restaurantBId, out Guid menuItemIdB,
+            out string sessionHash);
+
+        // Tenant A creates a cart with an item
+        var sessionContextA = new Mock<IShopperSessionContext>();
+        sessionContextA.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextA = new Mock<ITenantContext>();
+        tenantContextA.Setup(t => t.HasTenant).Returns(true);
+        tenantContextA.Setup(t => t.TenantId).Returns(tenantAId);
+        tenantContextA.Setup(t => t.GetRequiredTenantId()).Returns(tenantAId);
+        var serviceA = CreateService(db, tenantAId, sessionContextA, tenantContextA);
+
+        var added = await serviceA.AddItemAsync(restaurantAId, new AddPublicCartItemRequest(menuItemIdA, 1));
+
+        // Tenant B attempts to remove Tenant A's cart item
+        var sessionContextB = new Mock<IShopperSessionContext>();
+        sessionContextB.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextB = new Mock<ITenantContext>();
+        tenantContextB.Setup(t => t.HasTenant).Returns(true);
+        tenantContextB.Setup(t => t.TenantId).Returns(tenantBId);
+        tenantContextB.Setup(t => t.GetRequiredTenantId()).Returns(tenantBId);
+        var serviceB = CreateService(db, tenantBId, sessionContextB, tenantContextB);
+
+        // Act & Assert: Tenant B cannot remove Tenant A's cart item
+        var act = () => serviceB.RemoveItemAsync(restaurantAId, added.Id);
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task AddItemAsync_CrossTenantClear_ThrowsCrossTenantAccessException()
+    {
+        // Arrange: Two distinct tenants, each with their own restaurant.
+        using var db = CreateInMemoryDbWithTwoTenants(
+            out Guid tenantAId, out Guid restaurantAId, out Guid menuItemIdA,
+            out Guid tenantBId, out Guid restaurantBId, out Guid menuItemIdB,
+            out string sessionHash);
+
+        // Tenant A creates a cart with an item
+        var sessionContextA = new Mock<IShopperSessionContext>();
+        sessionContextA.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextA = new Mock<ITenantContext>();
+        tenantContextA.Setup(t => t.HasTenant).Returns(true);
+        tenantContextA.Setup(t => t.TenantId).Returns(tenantAId);
+        tenantContextA.Setup(t => t.GetRequiredTenantId()).Returns(tenantAId);
+        var serviceA = CreateService(db, tenantAId, sessionContextA, tenantContextA);
+
+        await serviceA.AddItemAsync(restaurantAId, new AddPublicCartItemRequest(menuItemIdA, 1));
+
+        // Tenant B attempts to clear Tenant A's cart
+        var sessionContextB = new Mock<IShopperSessionContext>();
+        sessionContextB.Setup(s => s.SessionHash).Returns(sessionHash);
+        var tenantContextB = new Mock<ITenantContext>();
+        tenantContextB.Setup(t => t.HasTenant).Returns(true);
+        tenantContextB.Setup(t => t.TenantId).Returns(tenantBId);
+        tenantContextB.Setup(t => t.GetRequiredTenantId()).Returns(tenantBId);
+        var serviceB = CreateService(db, tenantBId, sessionContextB, tenantContextB);
+
+        // Act & Assert: Tenant B cannot clear Tenant A's cart
+        var act = () => serviceB.ClearAsync(restaurantAId);
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task GetCurrentCartAsync_DifferentRestaurant_IndependentCart()
     {
         using var db = CreateInMemoryDb(out var tenantId, out var restaurantIdA, out var menuItemId, out var sessionHash);
         var service = CreateService(db, tenantId);
 
         // Add item to restaurant A using a real menu item
-        await service.AddItemAsync(restaurantIdA, new AddPublicCartItemRequest(menuItemId, 2));
+        await service.AddItemAsync(restaurantIdA, new AddPublicCartItemRequest(menuItemId, 1));
 
-        // Get cart for restaurant B - should be empty (different restaurant)
-        var cartB = await service.GetCurrentCartAsync(Guid.NewGuid());
-        cartB.ItemCount.Should().Be(0);
+        // Non-existent restaurant is rejected
+        var act = () => service.GetCurrentCartAsync(Guid.NewGuid());
+        await act.Should().ThrowAsync<NotFoundException>();
 
         // Cart for restaurant A should still have items
         var cartA = await service.GetCurrentCartAsync(restaurantIdA);
