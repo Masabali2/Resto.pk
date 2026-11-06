@@ -103,7 +103,9 @@ public class SqlServerConcurrencyTests
         // The connection string must point to an isolated test database that
         // is not used for development or production.
 
-        var tenantId = Guid.NewGuid();
+        var tenant = Tenant.Create("Concurrency Test Tenant", $"concurrency-{Guid.NewGuid():N}");
+        tenant.ChangeStatus(TenantStatus.Active);
+        var tenantId = tenant.Id;
         var sessionHash = $"session-{Guid.NewGuid():N}";
 
         var optionsA = new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -129,7 +131,7 @@ public class SqlServerConcurrencyTests
         try
         {
             // Seed isolated test data in contextA (shared database)
-            await SeedTestDataAsync(contextA, tenantId, sessionHash);
+            await SeedTestDataAsync(contextA, tenant, sessionHash);
 
             // Get the cart ID from contextA
             var cart = await contextA.Carts
@@ -239,8 +241,9 @@ public class SqlServerConcurrencyTests
             Assert.Fail($"SQL Server staff concurrency test not executed: {ConnectionStringEnvVar} environment variable is not set.");
         }
 
-        var tenantId = Guid.NewGuid();
-        var restaurantId = Guid.NewGuid();
+        var tenant = Tenant.Create("Staff Concurrency Tenant", $"staff-concurrency-{Guid.NewGuid():N}");
+        tenant.ChangeStatus(TenantStatus.Active);
+        var tenantId = tenant.Id;
         var userId = Guid.NewGuid();
 
         var optionsA = new DbContextOptionsBuilder<ApplicationDbContext>()
@@ -266,10 +269,7 @@ public class SqlServerConcurrencyTests
         try
         {
             // Seed isolated test data: tenant, restaurant, order in New status
-            if (!await dbTenantExists(contextA, tenantId))
-            {
-                await SeedStaffConcurrencyTestData(contextA, tenantId, restaurantId);
-            }
+            var restaurantId = await SeedStaffConcurrencyTestData(contextA, tenant);
 
             // Get the order ID from contextA
             var order = await contextA.Orders
@@ -352,25 +352,28 @@ public class SqlServerConcurrencyTests
         }
     }
 
-    private static async Task<bool> dbTenantExists(ApplicationDbContext db, Guid tenantId)
+    private static async Task<Guid> SeedStaffConcurrencyTestData(ApplicationDbContext db, Tenant tenant)
     {
-        return await db.Tenants.AnyAsync(t => t.Id == tenantId);
-    }
-
-    private static async Task SeedStaffConcurrencyTestData(ApplicationDbContext db, Guid tenantId, Guid restaurantId)
-    {
-        var tenant = Tenant.Create("Staff Concurrency Tenant", $"staff-concurrency-{tenantId:N}");
-        tenant.ChangeStatus(TenantStatus.Active);
-        db.Tenants.Add(tenant);
-
         var address = Address.Create("123 Test St", "Karachi", "Pakistan");
         var restaurant = Restaurant.Create(tenant.Id, "Staff Concurrency Restaurant", address, taxRate: 16m);
         restaurant.ChangeStatus(RestaurantStatus.Active);
+
+        db.Tenants.Add(tenant);
         db.Restaurants.Add(restaurant);
+
+        var plan = SubscriptionPlan.Create(
+            $"staff-concurrency-{tenant.Id:N}",
+            $"Staff Concurrency Plan {tenant.Id:N}",
+            Money.Zero(),
+            BillingInterval.Monthly,
+            maxStaff: 5,
+            maxMenuItems: 100,
+            maxOrdersPerMonth: 500);
+        db.SubscriptionPlans.Add(plan);
 
         var subscription = Subscription.Start(
             tenant.Id,
-            Guid.NewGuid(),
+            plan.Id,
             DateTime.UtcNow.AddDays(-1),
             DateTime.UtcNow.AddDays(30));
         db.Subscriptions.Add(subscription);
@@ -381,8 +384,8 @@ public class SqlServerConcurrencyTests
             Guid.NewGuid(), Guid.NewGuid(), "Test Burger", 450m, 1, "PKR");
 
         var order = Order.Create(
-            tenantId,
-            restaurantId,
+            tenant.Id,
+            restaurant.Id,
             null,
             $"ORD-STAFF-{Guid.NewGuid():N}",
             "Test Customer",
@@ -399,6 +402,8 @@ public class SqlServerConcurrencyTests
 
         db.Orders.Add(order);
         await db.SaveChangesAsync();
+
+        return restaurant.Id;
     }
 
     private static StaffOrderService CreateStaffService(ApplicationDbContext db, Guid tenantId, Guid userId)
@@ -451,14 +456,8 @@ public class SqlServerConcurrencyTests
             new OrderTrackingTokenService());
     }
 
-    private static async Task SeedTestDataAsync(ApplicationDbContext db, Guid tenantId, string sessionHash)
+    private static async Task SeedTestDataAsync(ApplicationDbContext db, Tenant tenant, string sessionHash)
     {
-        // Check if data already exists for this tenant (idempotent seeding)
-        if (await db.Tenants.AnyAsync(t => t.Id == tenantId))
-            return;
-
-        var tenant = Tenant.Create("Concurrency Test Tenant", $"concurrency-{tenantId:N}");
-        tenant.ChangeStatus(TenantStatus.Active);
         db.Tenants.Add(tenant);
 
         var address = Address.Create("123 Test St", "Karachi", "Pakistan");
@@ -466,9 +465,19 @@ public class SqlServerConcurrencyTests
         restaurant.ChangeStatus(RestaurantStatus.Active);
         db.Restaurants.Add(restaurant);
 
+        var plan = SubscriptionPlan.Create(
+            $"concurrency-{tenant.Id:N}",
+            $"Concurrency Plan {tenant.Id:N}",
+            Money.Zero(),
+            BillingInterval.Monthly,
+            maxStaff: 5,
+            maxMenuItems: 100,
+            maxOrdersPerMonth: 500);
+        db.SubscriptionPlans.Add(plan);
+
         var subscription = Subscription.Start(
             tenant.Id,
-            Guid.NewGuid(),
+            plan.Id,
             DateTime.UtcNow.AddDays(-1),
             DateTime.UtcNow.AddDays(30));
         db.Subscriptions.Add(subscription);

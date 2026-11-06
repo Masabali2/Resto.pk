@@ -46,7 +46,7 @@ public sealed class UpdateRestaurantRequestValidator : AbstractValidator<UpdateR
         RuleFor(x => x.Description).MaximumLength(2000).When(x => x.Description is not null);
         RuleFor(x => x.Phone).Matches(@"^\+?[0-9\s\-()]{7,20}$").When(x => !string.IsNullOrWhiteSpace(x.Phone));
         RuleFor(x => x.Email).EmailAddress().MaximumLength(256).When(x => !string.IsNullOrWhiteSpace(x.Email));
-        RuleFor(x => x.Address).SetValidator(new AddressInputValidator()).When(x => x.Address is not null);
+        RuleFor(x => x.Address!).SetValidator(new AddressInputValidator()).When(x => x.Address is not null);
     }
 }
 

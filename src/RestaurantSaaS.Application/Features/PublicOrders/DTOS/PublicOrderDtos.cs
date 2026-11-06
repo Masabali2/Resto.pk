@@ -22,6 +22,7 @@ public sealed record CreatePublicOrderResponse(
     Guid Id,
     string OrderNumber,
     OrderStatus Status,
+    OrderType OrderType,
     decimal TotalAmount,
     string Currency,
     string RawTrackingToken,

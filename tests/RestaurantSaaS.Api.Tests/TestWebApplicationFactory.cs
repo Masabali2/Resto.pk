@@ -27,7 +27,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("ShopperSession__LifetimeHours", "24");
         Environment.SetEnvironmentVariable("ShopperSession__SameSite", "Lax");
         Environment.SetEnvironmentVariable("ShopperSession__Secure", "false");
-        Environment.SetEnvironmentVariable("ShopperSession__AllowedOrigins", "https://localhost:4200");
+        Environment.SetEnvironmentVariable("ShopperSession__AllowedOrigins__0", "https://localhost:4200");
         Environment.SetEnvironmentVariable("Jwt__Secret", "this-is-a-test-jwt-secret-key-that-is-at-least-32-chars!");
         Environment.SetEnvironmentVariable("Jwt__Issuer", "https://localhost:5001");
         Environment.SetEnvironmentVariable("Jwt__Audience", "resto.pk");

@@ -206,7 +206,7 @@ public class StaffOrderServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_WrongRestaurant_ThrowsCrossTenantAccessException()
+    public async Task GetByIdAsync_WrongRestaurant_ReturnsNull()
     {
         var tenantContextMock = new Mock<ITenantContext>();
         var currentUserMock = new Mock<ICurrentUserService>();
@@ -219,9 +219,9 @@ public class StaffOrderServiceTests
         var wrongRestaurantId = Guid.NewGuid();
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var act = () => service.GetByIdAsync(wrongRestaurantId, orderId);
+        var result = await service.GetByIdAsync(wrongRestaurantId, orderId);
 
-        await act.Should().ThrowAsync<CrossTenantAccessException>();
+        result.Should().BeNull();
     }
 
     [Fact]
@@ -299,7 +299,7 @@ public class StaffOrderServiceTests
     }
 
     [Fact]
-    public async Task TransitionStatusAsync_WrongRestaurant_ThrowsCrossTenantAccessException()
+    public async Task TransitionStatusAsync_WrongRestaurant_ThrowsNotFound()
     {
         var tenantContextMock = new Mock<ITenantContext>();
         var currentUserMock = new Mock<ICurrentUserService>();
@@ -318,7 +318,7 @@ public class StaffOrderServiceTests
             new UpdateOrderStatusRequest(OrderStatus.Confirmed, null),
             userId);
 
-        await act.Should().ThrowAsync<CrossTenantAccessException>();
+        await act.Should().ThrowAsync<NotFoundException>();
     }
 
     [Fact]

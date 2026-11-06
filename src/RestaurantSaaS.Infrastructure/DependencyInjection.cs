@@ -97,8 +97,8 @@ public static class DependencyInjection
         services.AddScoped<ICurrentUserService, CurrentUserService>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
         services.AddScoped<ITenantMembershipService, TenantMembershipService>();
-        services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<ITenantResolver, PublicTenantResolver>();
+        services.AddScoped<ITenantResolver, AuthenticatedTenantResolver>();
         services.AddScoped<IAuthService, AuthService>();
         services.AddScoped<ITenantService, TenantService>();
         services.AddScoped<TenantAccessGuard>();

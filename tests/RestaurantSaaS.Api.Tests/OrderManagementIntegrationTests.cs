@@ -83,24 +83,32 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
 
     private async Task SeedOrderManagementData()
     {
-        // Clean any existing data from previous tests (IClassFixture shares
-        // the same DbContext across tests)
-        _db.CartItems.RemoveRange(_db.CartItems);
-        _db.Carts.RemoveRange(_db.Carts);
-        _db.Orders.RemoveRange(_db.Orders);
-        _db.StaffMemberships.RemoveRange(_db.StaffMemberships);
-        _db.Roles.RemoveRange(_db.Roles);
-        _db.WebsiteConfigurations.RemoveRange(_db.WebsiteConfigurations);
-        _db.Websites.RemoveRange(_db.Websites);
-        _db.WebsiteTemplates.RemoveRange(_db.WebsiteTemplates);
-        _db.MenuItems.RemoveRange(_db.MenuItems);
-        _db.MenuCategories.RemoveRange(_db.MenuCategories);
-        _db.Menus.RemoveRange(_db.Menus);
-        _db.Subscriptions.RemoveRange(_db.Subscriptions);
-        _db.SubscriptionPlans.RemoveRange(_db.SubscriptionPlans);
-        _db.Restaurants.RemoveRange(_db.Restaurants);
-        _db.Tenants.RemoveRange(_db.Tenants);
-        await _db.SaveChangesAsync();
+        // The shared test database is seeded without an ambient tenant, so
+        // bypass tenant filters for this explicit test-data reset only.
+        _db.DisableTenantFilters = true;
+        try
+        {
+            _db.CartItems.RemoveRange(_db.CartItems);
+            _db.Carts.RemoveRange(_db.Carts);
+            _db.Orders.RemoveRange(_db.Orders);
+            _db.StaffMemberships.RemoveRange(_db.StaffMemberships);
+            _db.Roles.RemoveRange(_db.Roles);
+            _db.WebsiteConfigurations.RemoveRange(_db.WebsiteConfigurations);
+            _db.Websites.RemoveRange(_db.Websites);
+            _db.WebsiteTemplates.RemoveRange(_db.WebsiteTemplates);
+            _db.MenuItems.RemoveRange(_db.MenuItems);
+            _db.MenuCategories.RemoveRange(_db.MenuCategories);
+            _db.Menus.RemoveRange(_db.Menus);
+            _db.Subscriptions.RemoveRange(_db.Subscriptions);
+            _db.SubscriptionPlans.RemoveRange(_db.SubscriptionPlans);
+            _db.Restaurants.RemoveRange(_db.Restaurants);
+            _db.Tenants.RemoveRange(_db.Tenants);
+            await _db.SaveChangesAsync();
+        }
+        finally
+        {
+            _db.DisableTenantFilters = false;
+        }
 
         _tenantId = Guid.Parse("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         _restaurantId = Guid.Parse("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
@@ -114,6 +122,7 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
         var address = Address.Create("123 Test St", "Karachi", "Pakistan");
         var restaurant = Restaurant.Create(_tenantId, "Test Restaurant", address, taxRate: 16m);
         restaurant.ChangeStatus(RestaurantStatus.Active);
+        _restaurantId = restaurant.Id;
         _db.Restaurants.Add(restaurant);
 
         var plan = SubscriptionPlan.Create(
@@ -218,21 +227,45 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
         response.EnsureSuccessStatusCode();
         var body = await response.Content.ReadAsStringAsync();
         using var doc = JsonDocument.Parse(body);
-        return doc.RootElement.GetProperty("token").GetString();
+        return doc.RootElement.GetProperty("token").GetString()
+            ?? throw new InvalidOperationException("Antiforgery endpoint did not return a request token.");
     }
 
-    private async Task<HttpResponseMessage> PostWithAntiforgeryAsync(
+    private Task<HttpResponseMessage> PostWithAntiforgeryAsync(
+        string url,
+        object body,
+        string? antiforgeryToken = null) =>
+        SendWithAntiforgeryAsync(HttpMethod.Post, url, body, antiforgeryToken);
+
+    private Task<HttpResponseMessage> PatchWithAntiforgeryAsync(
+        string url,
+        object body,
+        string? antiforgeryToken = null) =>
+        SendWithAntiforgeryAsync(HttpMethod.Patch, url, body, antiforgeryToken);
+
+    private async Task<HttpResponseMessage> SendWithAntiforgeryAsync(
+        HttpMethod method,
         string url,
         object body,
         string? antiforgeryToken = null)
     {
         var json = JsonSerializer.Serialize(body);
         var content = new StringContent(json, Encoding.UTF8, "application/json");
-        var request = new HttpRequestMessage(HttpMethod.Post, url) { Content = content };
+        var request = new HttpRequestMessage(method, url) { Content = content };
         request.Headers.TryAddWithoutValidation("Origin", AllowedOrigin);
         if (antiforgeryToken is not null)
             request.Headers.TryAddWithoutValidation("X-XSRF-TOKEN", antiforgeryToken);
-        return await _client.SendAsync(request);
+        var response = await _client.SendAsync(request);
+        if (!response.IsSuccessStatusCode)
+        {
+            var responseBody = await response.Content.ReadAsStringAsync();
+            var statusCode = response.StatusCode;
+            response.Dispose();
+            throw new InvalidOperationException(
+                $"Expected successful mutation but received {(int)statusCode}. Response: {responseBody}");
+        }
+
+        return response;
     }
 
     private void SetJwtCookie(string token)
@@ -282,7 +315,7 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
             $"/api/v1/public/restaurants/{_restaurantSlug}/orders",
             new
             {
-                orderType = "Pickup",
+                orderType = 1,
                 customerName = "John Doe",
                 customerPhone = "+923001234567",
                 customerEmail = "john@example.com",
@@ -331,7 +364,7 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
         var antiToken = await GetAntiforgeryTokenAsync();
 
         var response = await PostWithAntiforgeryAsync(
-            $"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct",
+            WithTenantSlug($"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct"),
             new
             {
                 orderType = 3,
@@ -368,10 +401,10 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
     {
         var antiToken = await GetAntiforgeryTokenAsync();
         var checkoutResponse = await PostWithAntiforgeryAsync(
-            $"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct",
+            WithTenantSlug($"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct"),
             new
             {
-                orderType = "Pickup",
+                orderType = 1,
                 customerName = "Track Test",
                 items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
             },
@@ -404,10 +437,10 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
     {
         var antiToken = await GetAntiforgeryTokenAsync();
         var checkoutResponse = await PostWithAntiforgeryAsync(
-            $"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct",
+            WithTenantSlug($"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct"),
             new
             {
-                orderType = "Pickup",
+                orderType = 1,
                 customerName = "Cross Test",
                 items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
             },
@@ -452,10 +485,10 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
     {
         var antiToken = await GetAntiforgeryTokenAsync();
         var checkoutResponse = await PostWithAntiforgeryAsync(
-            $"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct",
+            WithTenantSlug($"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct"),
             new
             {
-                orderType = "Pickup",
+                orderType = 1,
                 customerName = "Staff Test",
                 items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
             },
@@ -488,7 +521,7 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
         getDoc.RootElement.GetProperty("data").GetProperty("id").GetGuid().ToString().Should().Be(orderId);
         getDoc.RootElement.GetProperty("data").GetProperty("status").GetString().Should().Be("New");
 
-        var patchResponse = await PostWithAntiforgeryAsync(
+        var patchResponse = await PatchWithAntiforgeryAsync(
             $"/api/restaurants/{_restaurantId}/orders/{orderId}/status",
             new { newStatus = "Confirmed", notes = "Preparing order" });
         patchResponse.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -510,10 +543,10 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
     {
         var antiToken = await GetAntiforgeryTokenAsync();
         var checkoutResponse = await PostWithAntiforgeryAsync(
-            $"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct",
+            WithTenantSlug($"/api/v1/public/restaurants/{_restaurantSlug}/orders/direct"),
             new
             {
-                orderType = "Pickup",
+                orderType = 1,
                 customerName = "Isolation Test",
                 items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
             },

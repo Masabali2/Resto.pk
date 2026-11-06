@@ -94,7 +94,15 @@ public sealed class StaffOrderService(
 
         var utcNow = dateTimeProvider.UtcNow;
 
-        order.TransitionTo(request.NewStatus, changedByUserId, request.Notes, utcNow);
+        var history = order.TransitionTo(
+            request.NewStatus,
+            changedByUserId,
+            request.Notes,
+            utcNow);
+
+        // The history entity has a client-generated key. Explicitly track it
+        // as new so EF Core issues an INSERT rather than a zero-row UPDATE.
+        db.OrderStatusHistories.Add(history);
 
         await db.SaveChangesAsync(ct);
 
@@ -148,8 +156,9 @@ public sealed class StaffOrderService(
         if (order.TenantId != tenantId)
             throw new CrossTenantAccessException();
 
+        // A same-tenant order under another restaurant is non-disclosing.
         if (order.RestaurantId != restaurantId)
-            throw new CrossTenantAccessException();
+            return null;
 
         return order;
     }
