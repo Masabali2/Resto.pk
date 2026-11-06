@@ -222,13 +222,14 @@ namespace RestaurantSaaS.Infrastructure.Migrations
 
                     b.HasIndex("CustomerId");
 
-                    b.HasIndex("TenantId", "SessionId")
-                        .HasDatabaseName("IX_Carts_TenantId_SessionId")
-                        .HasFilter("[SessionId] IS NOT NULL");
-
                     b.HasIndex("TenantId", "CustomerId", "Status")
                         .HasDatabaseName("IX_Carts_TenantId_CustomerId_Status")
                         .HasFilter("[CustomerId] IS NOT NULL");
+
+                    b.HasIndex("TenantId", "RestaurantId", "SessionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_Carts_TenantId_RestaurantId_SessionId_Active")
+                        .HasFilter("[SessionId] IS NOT NULL AND [Status] = 1");
 
                     b.HasIndex("TenantId", "Status", "ExpiresAt")
                         .HasDatabaseName("IX_Carts_TenantId_Status_ExpiresAt");
