@@ -109,12 +109,12 @@ public static class DemoOrderSeeder
                 order.TransitionTo(
                     status,
                     notes: "Development demo order seed.",
-                    utcNow: DateTime.UtcNow.AddSeconds(1));
+                    utcNow: DateTime.UtcNow);
             }
 
             if (definition.IsPaid)
             {
-                order.ConfirmPayment(utcNow: DateTime.UtcNow.AddSeconds(2));
+                order.ConfirmPayment(utcNow: DateTime.UtcNow);
             }
 
             db.Orders.Add(order);
