@@ -44,4 +44,7 @@ public interface IStaffOrderService
         UpdateOrderStatusRequest request,
         Guid changedByUserId,
         CancellationToken ct = default);
+    Task<StaffOrderSummaryDto> GetSummaryAsync(
+    Guid restaurantId,
+    CancellationToken ct = default);
 }

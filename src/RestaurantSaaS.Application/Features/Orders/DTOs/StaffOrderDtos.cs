@@ -36,7 +36,12 @@ public sealed record StaffOrderDto(
     DateTime? CompletedAt,
     DateTime? CancelledAt,
     IReadOnlyList<StaffOrderItemDto> Items);
-
+public sealed record StaffOrderSummaryDto(
+    int TotalOrders,
+    int PendingKitchen,
+    int CompletedToday,
+    decimal TotalRevenue,
+    string Currency);
 /// <summary>
 /// Request to transition an order to a new status. The domain layer enforces
 /// legal transitions (Order.CanTransitionTo).
