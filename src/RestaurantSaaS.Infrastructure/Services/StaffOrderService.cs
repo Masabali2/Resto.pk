@@ -176,6 +176,94 @@ public sealed class StaffOrderService(
         return order;
     }
 
+    public async Task<StaffOrderSummaryDto> GetSummaryAsync(
+        Guid restaurantId,
+        CancellationToken ct = default)
+    {
+        var tenantId = await GetActiveTenantIdAsync(
+            Permissions.OrderView,
+            ct);
+
+        // Explicit ownership check in addition to EF Core tenant filters.
+        var restaurant = await db.Restaurants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                r => r.Id == restaurantId && r.TenantId == tenantId,
+                ct)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        var orders = db.Orders
+            .AsNoTracking()
+            .Where(o =>
+                o.TenantId == tenantId &&
+                o.RestaurantId == restaurantId);
+
+        // Total orders across the restaurant's complete history.
+        var totalOrders = await orders.CountAsync(ct);
+
+        // Orders that are currently in the kitchen pipeline.
+        var pendingKitchen = await orders.CountAsync(
+            o => o.Status == OrderStatus.New ||
+                 o.Status == OrderStatus.Confirmed ||
+                 o.Status == OrderStatus.Preparing,
+            ct);
+
+        // Determine today's UTC boundaries using the restaurant's timezone.
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(
+            restaurant.TimeZone);
+
+        var utcNow = DateTime.SpecifyKind(
+            dateTimeProvider.UtcNow,
+            DateTimeKind.Utc);
+
+        var restaurantLocalDate =
+            TimeZoneInfo.ConvertTimeFromUtc(utcNow, timeZone).Date;
+
+        var localDayStart = DateTime.SpecifyKind(
+            restaurantLocalDate,
+            DateTimeKind.Unspecified);
+
+        var localDayEnd = localDayStart.AddDays(1);
+
+        var utcDayStart = TimeZoneInfo.ConvertTimeToUtc(
+            localDayStart,
+            timeZone);
+
+        var utcDayEnd = TimeZoneInfo.ConvertTimeToUtc(
+            localDayEnd,
+            timeZone);
+
+        // CompletedToday is based on CompletedAt, not CreatedAt.
+        var completedToday = await orders.CountAsync(
+            o => o.Status == OrderStatus.Completed &&
+                 o.CompletedAt.HasValue &&
+                 o.CompletedAt.Value >= utcDayStart &&
+                 o.CompletedAt.Value < utcDayEnd,
+            ct);
+
+        // Revenue follows the agreed business rule:
+        // sum TotalAmount for completed orders, regardless of PaymentStatus.
+        var totalRevenue = await orders
+            .Where(o => o.Status == OrderStatus.Completed)
+            .SumAsync(o => (decimal?)o.TotalAmount, ct) ?? 0m;
+
+        // The current Resto.pk ordering flow uses one currency per order.
+        // Use the most recent order's currency; fall back to the platform
+        // default when the restaurant has no orders yet.
+        var currency = await orders
+            .OrderByDescending(o => o.CreatedAt)
+            .Select(o => o.Currency)
+            .FirstOrDefaultAsync(ct)
+            ?? Money.DefaultCurrency;
+
+        return new StaffOrderSummaryDto(
+            totalOrders,
+            pendingKitchen,
+            completedToday,
+            totalRevenue,
+            currency);
+    }
+
     private static StaffOrderDto MapToDto(Order order)
     {
         return new StaffOrderDto(

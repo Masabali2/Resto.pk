@@ -11,13 +11,7 @@ using RestaurantSaaS.Domain.Enums;
 
 namespace RestaurantSaaS.Api.Controllers;
 
-/// <summary>
-/// Authenticated staff order management.
-///
-/// All endpoints require JWT authentication and tenant-scoped authorization.
-/// Staff can only access orders belonging to their tenant's restaurants.
-/// The shopper session is never used as an authorization mechanism.
-/// </summary>
+
 [ApiController]
 [Authorize]
 [Route("api/restaurants/{restaurantId:guid}/orders")]
@@ -64,5 +58,15 @@ public sealed class StaffOrdersController(
 
         var order = await orderService.TransitionStatusAsync(restaurantId, orderId, request, userId, ct);
         return Ok(ApiResponse<StaffOrderDto>.Ok(order));
+    }
+    [HttpGet("summary")]
+    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.OrderView)]
+    public async Task<ActionResult<ApiResponse<StaffOrderSummaryDto>>> GetSummary(
+    Guid restaurantId,
+    CancellationToken ct = default)
+    {
+        var summary = await orderService.GetSummaryAsync(restaurantId, ct);
+
+        return Ok(ApiResponse<StaffOrderSummaryDto>.Ok(summary));
     }
 }

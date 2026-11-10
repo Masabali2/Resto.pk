@@ -180,6 +180,7 @@ if (app.Environment.IsDevelopment())
     // Development-only demo catalogue for the Menu Management screen. The
     // seeder owns a dedicated demo tenant and is idempotent.
     await DemoMenuSeeder.SeedAsync(db);
+    await DemoOrderSeeder.SeedAsync(db);
 }
 
 app.UseSerilogRequestLogging();
