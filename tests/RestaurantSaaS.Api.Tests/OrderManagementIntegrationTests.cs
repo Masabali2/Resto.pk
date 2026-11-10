@@ -634,6 +634,146 @@ public class OrderManagementIntegrationTests : IClassFixture<TestWebApplicationF
         response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
+    [Fact]
+    public async Task StaffOrder_Creation_EndToEnd_CreatesOrderWithServerCalculatedTotals()
+    {
+        SetJwtCookie(GenerateJwtToken(_staffUserId));
+
+        var response = await _client.PostAsync(
+            $"/api/restaurants/{_restaurantId}/orders",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    orderType = "Pickup",
+                    customerName = "John Doe",
+                    customerPhone = "+923001234567",
+                    customerEmail = "john@example.com",
+                    specialInstructions = "No onions please",
+                    items = new[] { new { menuItemId = _menuItemId, quantity = 2 } }
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("success").GetBoolean().Should().BeTrue();
+
+        var data = doc.RootElement.GetProperty("data");
+        data.GetProperty("status").GetString().Should().Be("New");
+        data.GetProperty("orderType").GetString().Should().Be("Pickup");
+        data.GetProperty("customerName").GetString().Should().Be("John Doe");
+        data.GetProperty("subtotal").GetDecimal().Should().Be(900m);
+        data.GetProperty("taxAmount").GetDecimal().Should().Be(144m);
+        data.GetProperty("totalAmount").GetDecimal().Should().Be(1044m);
+        data.GetProperty("currency").GetString().Should().Be("PKR");
+        data.GetProperty("orderNumber").GetString().Should().StartWith("ORD-");
+
+        var items = data.GetProperty("items");
+        items.GetArrayLength().Should().Be(1);
+        items[0].GetProperty("quantity").GetInt32().Should().Be(2);
+        items[0].GetProperty("unitPrice").GetDecimal().Should().Be(450m);
+        items[0].GetProperty("lineTotal").GetDecimal().Should().Be(900m);
+    }
+
+    [Fact]
+    public async Task StaffOrder_Creation_Unauthenticated_Returns401()
+    {
+        _client.DefaultRequestHeaders.Remove("Cookie");
+
+        var response = await _client.PostAsync(
+            $"/api/restaurants/{_restaurantId}/orders",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    orderType = "Pickup",
+                    customerName = "John Doe",
+                    items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task StaffOrder_Creation_UnknownMenuItem_Returns404()
+    {
+        SetJwtCookie(GenerateJwtToken(_staffUserId));
+
+        var response = await _client.PostAsync(
+            $"/api/restaurants/{_restaurantId}/orders",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    orderType = "Pickup",
+                    customerName = "John Doe",
+                    items = new[] { new { menuItemId = Guid.NewGuid(), quantity = 1 } }
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task StaffOrder_Creation_ValidationError_Returns400()
+    {
+        SetJwtCookie(GenerateJwtToken(_staffUserId));
+
+        var response = await _client.PostAsync(
+            $"/api/restaurants/{_restaurantId}/orders",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    orderType = "Pickup",
+                    customerName = "",
+                    items = new object[0]
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+
+        var body = await response.Content.ReadAsStringAsync();
+        using var doc = JsonDocument.Parse(body);
+        doc.RootElement.GetProperty("success").GetBoolean().Should().BeFalse();
+        doc.RootElement.GetProperty("errorCode").GetString().Should().Be("VALIDATION_ERROR");
+    }
+
+    [Fact]
+    public async Task StaffOrder_Creation_WithoutOrderCreatePermission_Returns403()
+    {
+        var kitchenUserId = Guid.Parse("22222222-2222-4222-8222-222222222222");
+        var kitchenRoleId = Guid.Parse("22222222-2222-4222-8222-222222222222");
+
+        _db.Roles.Add(new Role
+        {
+            Id = kitchenRoleId,
+            Name = "Kitchen",
+            NormalizedName = "KITCHEN"
+        });
+        _db.StaffMemberships.Add(StaffMembership.Create(_tenantId, kitchenUserId, kitchenRoleId));
+        await _db.SaveChangesAsync();
+
+        SetJwtCookie(GenerateJwtToken(kitchenUserId));
+
+        var response = await _client.PostAsync(
+            $"/api/restaurants/{_restaurantId}/orders",
+            new StringContent(
+                JsonSerializer.Serialize(new
+                {
+                    orderType = "Pickup",
+                    customerName = "John Doe",
+                    items = new[] { new { menuItemId = _menuItemId, quantity = 1 } }
+                }),
+                Encoding.UTF8,
+                "application/json"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
     public void Dispose()
     {
         _client.Dispose();

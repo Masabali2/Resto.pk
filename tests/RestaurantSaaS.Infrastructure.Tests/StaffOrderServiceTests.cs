@@ -5,11 +5,11 @@ using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Features.Orders;
-using RestaurantSaaS.Application.Features.Orders.DTOS;
-using RestaurantSaaS.Domain.Entities.Orders;
+using RestaurantSaaS.Application.Features.Orders.DTOS;using RestaurantSaaS.Domain.Entities.Orders;
 using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Entities.Subscriptions;
 using RestaurantSaaS.Domain.Entities.Tenants;
+using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Domain.ValueObjects;
@@ -111,6 +111,37 @@ public class StaffOrderServiceTests
         return (options, tenantId, restaurantId, userId);
     }
 
+    private static async Task<Guid> SeedAvailableMenuItemAsync(
+        Microsoft.EntityFrameworkCore.DbContextOptions<ApplicationDbContext> options,
+        Guid tenantId,
+        Guid restaurantId,
+        decimal price = 450m,
+        bool available = true)
+    {
+        var dateTimeProvider = new Mock<IDateTimeProvider>();
+        dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
+
+        using var db = new ApplicationDbContext(
+            options,
+            new Mock<ITenantContext>().Object,
+            dateTimeProvider.Object);
+
+        var menu = Menu.Create(tenantId, restaurantId, "Test Menu");
+        db.Menus.Add(menu);
+
+        var category = MenuCategory.Create(menu.Id, "Main");
+        db.MenuCategories.Add(category);
+
+        var item = MenuItem.Create(category.Id, "Test Burger", Money.New(price, "PKR"));
+        if (!available)
+            item.SetAvailability(false);
+
+        db.MenuItems.Add(item);
+        await db.SaveChangesAsync();
+
+        return item.Id;
+    }
+
     private static StaffOrderService CreateService(
         Microsoft.EntityFrameworkCore.DbContextOptions<ApplicationDbContext> options,
         Mock<ITenantContext> tenantContextMock,
@@ -120,6 +151,9 @@ public class StaffOrderServiceTests
         var dateTimeProvider = new Mock<IDateTimeProvider>();
         dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
 
+        var orderNumberGenerator = new Mock<IOrderNumberGenerator>();
+        orderNumberGenerator.Setup(g => g.Generate()).Returns("ORD-TEST-001");
+
         var db = new ApplicationDbContext(options, tenantContextMock.Object, dateTimeProvider.Object);
 
         return new StaffOrderService(
@@ -127,7 +161,8 @@ public class StaffOrderServiceTests
             tenantContextMock.Object,
             currentUserMock.Object,
             membershipMock.Object,
-            dateTimeProvider.Object);
+            dateTimeProvider.Object,
+            orderNumberGenerator.Object);
     }
 
     [Fact]
@@ -397,6 +432,234 @@ public class StaffOrderServiceTests
         var act = () => service.ListAsync(null, null, 1, 10);
 
         await act.Should().ThrowAsync<NotAuthenticatedException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_ValidRequest_CreatesOrderWithServerCalculatedTotals()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var result = await service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                "+923001234567",
+                "john@example.com",
+                "No onions please",
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 2) }));
+
+        result.Should().NotBeNull();
+        result.Id.Should().NotBe(Guid.Empty);
+        result.OrderNumber.Should().StartWith("ORD-");
+        result.Status.Should().Be(OrderStatus.New);
+        result.OrderType.Should().Be(OrderType.Pickup);
+        result.CustomerName.Should().Be("John Doe");
+        result.CustomerPhone.Should().Be("+923001234567");
+        result.CustomerEmail.Should().Be("john@example.com");
+        result.SpecialInstructions.Should().Be("No onions please");
+        result.Subtotal.Should().Be(900m);
+        result.TaxAmount.Should().Be(144m);
+        result.TotalAmount.Should().Be(1044m);
+        result.Currency.Should().Be("PKR");
+        result.Items.Should().HaveCount(1);
+        result.Items[0].MenuItemId.Should().Be(menuItemId);
+        result.Items[0].ItemName.Should().Be("Test Burger");
+        result.Items[0].UnitPrice.Should().Be(450m);
+        result.Items[0].Quantity.Should().Be(2);
+        result.Items[0].LineTotal.Should().Be(900m);
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnknownMenuItem_ThrowsNotFound()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(Guid.NewGuid(), 1) }));
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_UnavailableMenuItem_ThrowsDomainException()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m, available: false);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 1) }));
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_RestaurantNotAcceptingOrders_ThrowsDomainException()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m);
+
+        var dateTimeProvider = new Mock<IDateTimeProvider>();
+        dateTimeProvider.Setup(d => d.UtcNow).Returns(DateTime.SpecifyKind(DateTime.UtcNow, DateTimeKind.Utc));
+        using var readDb = new ApplicationDbContext(
+            options,
+            tenantContextMock.Object,
+            dateTimeProvider.Object);
+        var restaurant = readDb.Restaurants.First(r => r.Id == restaurantId);
+        restaurant.ChangeStatus(RestaurantStatus.Draft);
+        await readDb.SaveChangesAsync();
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 1) }));
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_DuplicateMenuItemIds_ThrowsDomainException()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[]
+                {
+                    new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 1),
+                    new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 2)
+                }));
+
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_CrossTenant_ThrowsCrossTenantAccessException()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m);
+
+        var otherTenantId = Guid.NewGuid();
+        tenantContextMock.Setup(t => t.TenantId).Returns(otherTenantId);
+        tenantContextMock.Setup(t => t.GetRequiredTenantId()).Returns(otherTenantId);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 1) }));
+
+        await act.Should().ThrowAsync<CrossTenantAccessException>();
+    }
+
+    [Fact]
+    public async Task CreateAsync_WithoutOrderCreatePermission_ThrowsForbidden()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, userId) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 0);
+
+        var menuItemId = await SeedAvailableMenuItemAsync(options, tenantId, restaurantId, price: 450m);
+
+        membershipMock.Setup(m => m.GetMembershipAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new TenantMembershipInfo(
+                Guid.NewGuid(), tenantId, "Test Tenant", "test-tenant",
+                Guid.NewGuid(), Permissions.TenantRoles.Kitchen, (int)MembershipStatus.Active));
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var act = () => service.CreateAsync(
+            restaurantId,
+            new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+                OrderType.Pickup,
+                "John Doe",
+                null,
+                null,
+                null,
+                new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(menuItemId, 1) }));
+
+        await act.Should().ThrowAsync<ForbiddenException>();
     }
 
     // ------------------------------------------------------------------

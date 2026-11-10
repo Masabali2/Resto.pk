@@ -200,4 +200,81 @@ public class StaffOrdersControllerTests
 
         await act.Should().ThrowAsync<NotFoundException>();
     }
+
+    [Fact]
+    public void Create_Endpoint_HasOrderCreatePolicy()
+    {
+        var method = typeof(StaffOrdersController).GetMethod(
+            "Create",
+            [typeof(Guid), typeof(RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest), typeof(CancellationToken)])!;
+
+        var policies = method.GetCustomAttributes(typeof(AuthorizeAttribute), true)
+            .Cast<AuthorizeAttribute>()
+            .Select(a => a.Policy)
+            .ToList();
+
+        policies.Should().Contain(p => p.Contains(Permissions.OrderCreate));
+    }
+
+    [Fact]
+    public async Task Create_WhenValid_ReturnsCreatedOrder()
+    {
+        var restaurantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var orderId = Guid.NewGuid();
+        var request = new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            "+923001234567",
+            "john@example.com",
+            null,
+            new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(Guid.NewGuid(), 1) });
+
+        var expectedOrder = new StaffOrderDto(
+            orderId, "ORD-001", OrderStatus.New, OrderType.Pickup,
+            "John Doe", "+923001234567", "john@example.com",
+            450m, 0m, 72m, 522m, "PKR", "No onions",
+            DateTime.UtcNow, null, null,
+            new List<StaffOrderItemDto>());
+
+        _orderService
+            .Setup(s => s.CreateAsync(restaurantId, request, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedOrder);
+
+        var controller = CreateController(authenticated: true, userId: userId);
+
+        var result = await controller.Create(restaurantId, request, CancellationToken.None);
+
+        var ok = result.Result as ObjectResult;
+        ok!.StatusCode.Should().Be(200);
+        var envelope = ok.Value as ApiResponse<StaffOrderDto>;
+        envelope!.Success.Should().BeTrue();
+        envelope.Data!.Id.Should().Be(orderId);
+        envelope.Data.Status.Should().Be(OrderStatus.New);
+        envelope.Data.TotalAmount.Should().Be(522m);
+    }
+
+    [Fact]
+    public async Task Create_WhenServiceThrowsNotFound_Returns404()
+    {
+        var restaurantId = Guid.NewGuid();
+        var userId = Guid.NewGuid();
+        var request = new RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest(
+            OrderType.Pickup,
+            "John Doe",
+            null,
+            null,
+            null,
+            new[] { new RestaurantSaaS.Application.Features.Orders.DTOs.OrderItemRequest(Guid.NewGuid(), 1) });
+
+        _orderService
+            .Setup(s => s.CreateAsync(restaurantId, request, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new NotFoundException("Restaurant", restaurantId));
+
+        var controller = CreateController(authenticated: true, userId: userId);
+
+        var act = async () => await controller.Create(restaurantId, request, CancellationToken.None);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
 }
