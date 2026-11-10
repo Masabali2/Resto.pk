@@ -69,4 +69,16 @@ public sealed class StaffOrdersController(
 
         return Ok(ApiResponse<StaffOrderSummaryDto>.Ok(summary));
     }
+
+    [HttpGet("create")]
+    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.OrderView)]
+    public async Task<ActionResult<ApiResponse<StaffCreateOrderDto>>> GetCreateContext(
+        Guid restaurantId,
+        CancellationToken ct = default)
+    {
+        var context = await orderService.GetCreateContextAsync(restaurantId, ct);
+
+        return Ok(ApiResponse<StaffCreateOrderDto>.Ok(context));
+    }
+
 }

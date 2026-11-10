@@ -3,12 +3,15 @@ using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Interfaces;
 using RestaurantSaaS.Application.Common.Models;
+using RestaurantSaaS.Application.Features.MenuCategories.DTOs;
+using RestaurantSaaS.Application.Features.MenuItems.DTOs;
 using RestaurantSaaS.Application.Features.Orders;
 using RestaurantSaaS.Application.Features.Orders.DTOS;
 using RestaurantSaaS.Domain.Entities.Orders;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Persistence;
+using RestaurantSaaS.Infrastructure.Tenancy;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
@@ -263,6 +266,106 @@ public sealed class StaffOrderService(
             totalRevenue,
             currency);
     }
+
+
+    public async Task<StaffCreateOrderDto> GetCreateContextAsync(
+        Guid restaurantId,
+        CancellationToken cancellationToken = default)
+    {
+        // Keep staff authentication, tenant isolation and permission checks.
+        var tenantId = await GetActiveTenantIdAsync(
+            Permissions.OrderView,
+            cancellationToken);
+
+        // Verify that the restaurant belongs to the authenticated tenant.
+        // Do not require the restaurant to be Active during UI testing.
+        var restaurant = await db.Restaurants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                r => r.Id == restaurantId &&
+                     r.TenantId == tenantId &&
+                     !r.IsDeleted,
+                cancellationToken)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        // Load a menu regardless of its publication or active status.
+        var menu = await db.Menus
+            .AsNoTracking()
+            .Where(m =>
+                m.RestaurantId == restaurantId &&
+                m.TenantId == tenantId)
+            .OrderByDescending(m => m.IsActive)
+            .ThenByDescending(m => m.Status == MenuStatus.Published)
+            .ThenBy(m => m.CreatedAt)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new NotFoundException("Menu", restaurantId);
+
+        // Load all non-deleted categories, including inactive categories.
+        var categories = await db.MenuCategories
+            .AsNoTracking()
+            .Where(c =>
+                c.MenuId == menu.Id &&
+                !c.IsDeleted)
+            .OrderBy(c => c.DisplayOrder)
+            .ThenBy(c => c.Name)
+            .Select(c => new MenuCategoryDto(
+                c.Id,
+                c.MenuId,
+                c.Name,
+                c.Description,
+                c.DisplayOrder,
+                c.IsActive,
+                c.CreatedAt,
+                c.UpdatedAt,
+                c.Items.Count(i => !i.IsDeleted)))
+            .ToListAsync(cancellationToken);
+
+        // Load all non-deleted items, including unavailable and inactive items.
+        var items = await db.MenuItems
+            .AsNoTracking()
+            .Where(i =>
+                i.Category.MenuId == menu.Id &&
+                !i.Category.IsDeleted &&
+                !i.IsDeleted)
+            .OrderBy(i => i.Category.DisplayOrder)
+            .ThenBy(i => i.DisplayOrder)
+            .ThenBy(i => i.Name)
+            .Select(i => new MenuItemDto(
+                i.Id,
+                i.MenuCategoryId,
+                i.Category.MenuId,
+                i.Name,
+                i.Description,
+                i.Price,
+                i.Currency,
+                i.ImageFileId,
+                i.DisplayOrder,
+                i.IsAvailable,
+                i.IsActive,
+                i.CreatedAt,
+                i.UpdatedAt,
+                i.Category.Name,
+                null))
+            .ToListAsync(cancellationToken);
+
+        return new StaffCreateOrderDto(
+            restaurant.Id,
+            restaurant.Name,
+            restaurant.TaxRate,
+            Money.DefaultCurrency,
+            menu.Id,
+            menu.Name,
+            categories,
+            items,
+            new[]
+            {
+            OrderType.Pickup,
+            OrderType.DineIn,
+            OrderType.Delivery
+            },
+            PaymentMethod.Cash);
+    }
+
 
     private static StaffOrderDto MapToDto(Order order)
     {

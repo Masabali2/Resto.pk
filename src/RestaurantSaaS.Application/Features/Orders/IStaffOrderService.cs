@@ -47,4 +47,7 @@ public interface IStaffOrderService
     Task<StaffOrderSummaryDto> GetSummaryAsync(
     Guid restaurantId,
     CancellationToken ct = default);
+    Task<StaffCreateOrderDto> GetCreateContextAsync(
+    Guid restaurantId,
+    CancellationToken cancellationToken = default);
 }
