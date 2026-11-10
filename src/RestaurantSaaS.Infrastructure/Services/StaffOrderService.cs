@@ -7,9 +7,11 @@ using RestaurantSaaS.Application.Features.MenuCategories.DTOs;
 using RestaurantSaaS.Application.Features.MenuItems.DTOs;
 using RestaurantSaaS.Application.Features.Orders;
 using RestaurantSaaS.Application.Features.Orders.DTOS;
+using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Entities.Orders;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
+using RestaurantSaaS.Domain.ValueObjects;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Tenancy;
 
@@ -28,7 +30,8 @@ public sealed class StaffOrderService(
     ITenantContext tenantContext,
     ICurrentUserService currentUser,
     ITenantMembershipService membershipService,
-    IDateTimeProvider dateTimeProvider) : IStaffOrderService
+    IDateTimeProvider dateTimeProvider,
+    IOrderNumberGenerator orderNumberGenerator) : IStaffOrderService
 {
     public async Task<PagedResult<StaffOrderDto>> ListAsync(
         Guid? restaurantId,
@@ -272,39 +275,41 @@ public sealed class StaffOrderService(
         Guid restaurantId,
         CancellationToken cancellationToken = default)
     {
-        // Keep staff authentication, tenant isolation and permission checks.
         var tenantId = await GetActiveTenantIdAsync(
             Permissions.OrderView,
             cancellationToken);
 
-        // Verify that the restaurant belongs to the authenticated tenant.
-        // Do not require the restaurant to be Active during UI testing.
         var restaurant = await db.Restaurants
             .AsNoTracking()
             .FirstOrDefaultAsync(
                 r => r.Id == restaurantId &&
-                     r.TenantId == tenantId &&
-                     !r.IsDeleted,
+                     r.TenantId == tenantId,
                 cancellationToken)
             ?? throw new NotFoundException("Restaurant", restaurantId);
 
-        // Load a menu regardless of its publication or active status.
+        if (!restaurant.CanAcceptOrders)
+        {
+            throw new DomainException(
+                "RESTAURANT_NOT_ACCEPTING_ORDERS",
+                "This restaurant is not currently accepting orders.");
+        }
+
         var menu = await db.Menus
             .AsNoTracking()
             .Where(m =>
                 m.RestaurantId == restaurantId &&
-                m.TenantId == tenantId)
-            .OrderByDescending(m => m.IsActive)
-            .ThenByDescending(m => m.Status == MenuStatus.Published)
-            .ThenBy(m => m.CreatedAt)
+                m.TenantId == tenantId &&
+                m.IsActive &&
+                m.Status == MenuStatus.Published)
+            .OrderBy(m => m.CreatedAt)
             .FirstOrDefaultAsync(cancellationToken)
-            ?? throw new NotFoundException("Menu", restaurantId);
+            ?? throw new NotFoundException("Published menu", restaurantId);
 
-        // Load all non-deleted categories, including inactive categories.
         var categories = await db.MenuCategories
             .AsNoTracking()
             .Where(c =>
                 c.MenuId == menu.Id &&
+                c.IsActive &&
                 !c.IsDeleted)
             .OrderBy(c => c.DisplayOrder)
             .ThenBy(c => c.Name)
@@ -317,15 +322,17 @@ public sealed class StaffOrderService(
                 c.IsActive,
                 c.CreatedAt,
                 c.UpdatedAt,
-                c.Items.Count(i => !i.IsDeleted)))
+                c.Items.Count(i => i.IsActive && !i.IsDeleted)))
             .ToListAsync(cancellationToken);
 
-        // Load all non-deleted items, including unavailable and inactive items.
+
         var items = await db.MenuItems
             .AsNoTracking()
             .Where(i =>
                 i.Category.MenuId == menu.Id &&
+                i.Category.IsActive &&
                 !i.Category.IsDeleted &&
+                i.IsActive &&
                 !i.IsDeleted)
             .OrderBy(i => i.Category.DisplayOrder)
             .ThenBy(i => i.DisplayOrder)
@@ -348,6 +355,7 @@ public sealed class StaffOrderService(
                 null))
             .ToListAsync(cancellationToken);
 
+
         return new StaffCreateOrderDto(
             restaurant.Id,
             restaurant.Name,
@@ -364,6 +372,134 @@ public sealed class StaffOrderService(
             OrderType.Delivery
             },
             PaymentMethod.Cash);
+    }
+
+    public async Task<StaffOrderDto> CreateAsync(
+        Guid restaurantId,
+        RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest request,
+        CancellationToken ct = default)
+    {
+        await GetActiveTenantIdAsync(Permissions.OrderCreate, ct);
+        var tenantId = tenantContext.GetRequiredTenantId();
+
+        var restaurant = await db.Restaurants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == restaurantId && r.TenantId == tenantId, ct)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        if (!restaurant.CanAcceptOrders)
+        {
+            throw new DomainException(
+                "RESTAURANT_NOT_ACCEPTING_ORDERS",
+                "This restaurant is not currently accepting orders.");
+        }
+
+        if (request.Items is null || request.Items.Count == 0)
+        {
+            throw new DomainException("ORDER_ITEMS_REQUIRED", "An order must have at least one item.");
+        }
+
+        var distinctItemIds = request.Items.Select(i => i.MenuItemId).Distinct().ToList();
+        if (distinctItemIds.Count != request.Items.Count)
+        {
+            throw new DomainException(
+                "DUPLICATE_MENU_ITEM",
+                "Duplicate menu item IDs are not allowed. Use quantity instead.");
+        }
+
+        var menuItems = await db.MenuItems
+            .AsNoTracking()
+            .Include(i => i.Category)
+            .ThenInclude(c => c.Menu)
+            .Where(i => distinctItemIds.Contains(i.Id))
+            .ToListAsync(ct);
+
+        var menuItemLookup = menuItems.ToDictionary(mi => mi.Id);
+
+        var orderItems = new List<OrderItem>();
+        decimal subtotal = 0m;
+        string? currency = null;
+
+        foreach (var itemRequest in request.Items)
+        {
+            if (!menuItemLookup.TryGetValue(itemRequest.MenuItemId, out var menuItem))
+            {
+                throw new NotFoundException("MenuItem", itemRequest.MenuItemId);
+            }
+
+            if (menuItem.Category is null ||
+                menuItem.Category.Menu is null ||
+                menuItem.Category.Menu.RestaurantId != restaurantId)
+            {
+                throw new CrossTenantAccessException();
+            }
+
+            if (!menuItem.CanBeOrdered)
+            {
+                throw new DomainException(
+                    "ITEM_NOT_ORDERABLE",
+                    $"Menu item '{menuItem.Name}' is no longer available for ordering.");
+            }
+
+            var price = Money.New(menuItem.Price, menuItem.Currency);
+
+            if (currency is null)
+                currency = price.Currency;
+            else if (currency != price.Currency)
+            {
+                throw new DomainException(
+                    "CURRENCY_MISMATCH",
+                    "All items in an order must use the same currency.");
+            }
+
+            var lineTotal = price.Amount * itemRequest.Quantity;
+            subtotal += lineTotal;
+
+            orderItems.Add(OrderItem.CreateSnapshot(
+                Guid.NewGuid(),
+                itemRequest.MenuItemId,
+                menuItem.Name,
+                price.Amount,
+                itemRequest.Quantity,
+                price.Currency));
+        }
+
+        var financials = CalculateFinancials(subtotal, restaurant.TaxRate);
+
+        var orderNumber = orderNumberGenerator.Generate();
+
+        var order = Order.Create(
+            tenantId,
+            restaurantId,
+            null,
+            orderNumber,
+            request.CustomerName,
+            request.CustomerPhone,
+            request.CustomerEmail,
+            financials.Subtotal,
+            financials.DiscountAmount,
+            financials.TaxAmount,
+            financials.TotalAmount,
+            currency ?? Money.DefaultCurrency,
+            request.SpecialInstructions,
+            request.OrderType,
+            orderItems);
+
+        db.Orders.Add(order);
+        await db.SaveChangesAsync(ct);
+
+        return MapToDto(order);
+    }
+
+    private static (decimal Subtotal, decimal DiscountAmount, decimal TaxAmount, decimal TotalAmount) CalculateFinancials(
+        decimal subtotal,
+        decimal taxRate)
+    {
+        var discountAmount = 0m;
+        var taxAmount = Math.Round(subtotal * taxRate / 100m, 4, MidpointRounding.AwayFromZero);
+        var totalAmount = subtotal - discountAmount + taxAmount;
+
+        return (subtotal, discountAmount, taxAmount, totalAmount);
     }
 
 

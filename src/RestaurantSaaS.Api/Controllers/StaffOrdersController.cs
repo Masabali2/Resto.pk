@@ -81,4 +81,16 @@ public sealed class StaffOrdersController(
         return Ok(ApiResponse<StaffCreateOrderDto>.Ok(context));
     }
 
+    [HttpPost]
+    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.OrderCreate)]
+    public async Task<ActionResult<ApiResponse<StaffOrderDto>>> Create(
+        Guid restaurantId,
+        [FromBody] RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest request,
+        CancellationToken ct = default)
+    {
+        var order = await orderService.CreateAsync(restaurantId, request, ct);
+
+        return Ok(ApiResponse<StaffOrderDto>.Ok(order));
+    }
+
 }

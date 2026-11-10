@@ -50,4 +50,14 @@ public interface IStaffOrderService
     Task<StaffCreateOrderDto> GetCreateContextAsync(
     Guid restaurantId,
     CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a new staff order for the restaurant. All financials (prices,
+    /// tax, subtotal, total) are calculated server-side; the client supplies
+    /// only item IDs, quantities, customer information, and order type.
+    /// </summary>
+    Task<StaffOrderDto> CreateAsync(
+        Guid restaurantId,
+        RestaurantSaaS.Application.Features.Orders.DTOs.CreateOrderRequest request,
+        CancellationToken ct = default);
 }
