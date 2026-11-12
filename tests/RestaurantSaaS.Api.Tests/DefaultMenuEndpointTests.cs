@@ -63,6 +63,28 @@ public sealed class DefaultMenuEndpointTests
         1,
         Array.Empty<DefaultMenuCategoryDto>());
 
+    private static readonly MenuDto PublishedMenu = new(
+        Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"),
+        TenantA,
+        Guid.Parse("11111111-1111-4111-8111-111111111111"),
+        "Published Menu",
+        null,
+        true,
+        MenuStatus.Published.ToString(),
+        DateTime.UtcNow,
+        null);
+
+    private static readonly MenuDto UnpublishedMenu = new(
+        Guid.Parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"),
+        TenantA,
+        Guid.Parse("11111111-1111-4111-8111-111111111111"),
+        "Published Menu",
+        null,
+        true,
+        MenuStatus.Draft.ToString(),
+        DateTime.UtcNow,
+        null);
+
     [Fact]
     public void DefaultMenuAction_HasTheCanonicalRouteAndTenantPermissionPolicy()
     {
@@ -119,6 +141,92 @@ public sealed class DefaultMenuEndpointTests
         action.GetCustomAttributes<HttpDeleteAttribute>(inherit: true)
             .Should()
             .BeEmpty();
+    }
+
+    [Fact]
+    public void PublishAction_HasTheCanonicalRouteAndMenuUpdatePermissionPolicy()
+    {
+        var action = typeof(MenusController).GetMethod(
+            nameof(MenusController.Publish),
+            BindingFlags.Public | BindingFlags.Instance);
+
+        action.Should().NotBeNull();
+
+        var httpPatch = action!
+            .GetCustomAttributes<HttpPatchAttribute>(inherit: true)
+            .Single();
+
+        httpPatch.Template.Should().Be("menus/{menuId:guid}/publish");
+
+        var authorize = action
+            .GetCustomAttributes<AuthorizeAttribute>(inherit: true)
+            .Single();
+
+        authorize.Policy.Should().Be(
+            IdentityPolicyNames.ForPermission(Permissions.MenuUpdate));
+
+        action.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true)
+            .Should()
+            .BeEmpty();
+    }
+
+    [Fact]
+    public void PublishAction_IsPatchOnly()
+    {
+        var action = typeof(MenusController).GetMethod(
+            nameof(MenusController.Publish),
+            BindingFlags.Public | BindingFlags.Instance)!;
+
+        action.GetCustomAttributes<HttpPatchAttribute>(inherit: true)
+            .Should()
+            .ContainSingle();
+        action.GetCustomAttributes<HttpGetAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpPostAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpPutAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpDeleteAttribute>(inherit: true).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void UnpublishAction_HasTheCanonicalRouteAndMenuUpdatePermissionPolicy()
+    {
+        var action = typeof(MenusController).GetMethod(
+            nameof(MenusController.Unpublish),
+            BindingFlags.Public | BindingFlags.Instance);
+
+        action.Should().NotBeNull();
+
+        var httpPatch = action!
+            .GetCustomAttributes<HttpPatchAttribute>(inherit: true)
+            .Single();
+
+        httpPatch.Template.Should().Be("menus/{menuId:guid}/unpublish");
+
+        var authorize = action
+            .GetCustomAttributes<AuthorizeAttribute>(inherit: true)
+            .Single();
+
+        authorize.Policy.Should().Be(
+            IdentityPolicyNames.ForPermission(Permissions.MenuUpdate));
+
+        action.GetCustomAttributes<AllowAnonymousAttribute>(inherit: true)
+            .Should()
+            .BeEmpty();
+    }
+
+    [Fact]
+    public void UnpublishAction_IsPatchOnly()
+    {
+        var action = typeof(MenusController).GetMethod(
+            nameof(MenusController.Unpublish),
+            BindingFlags.Public | BindingFlags.Instance)!;
+
+        action.GetCustomAttributes<HttpPatchAttribute>(inherit: true)
+            .Should()
+            .ContainSingle();
+        action.GetCustomAttributes<HttpGetAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpPostAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpPutAttribute>(inherit: true).Should().BeEmpty();
+        action.GetCustomAttributes<HttpDeleteAttribute>(inherit: true).Should().BeEmpty();
     }
 
     [Fact]
@@ -222,6 +330,60 @@ public sealed class DefaultMenuEndpointTests
         harness.Recorder.Calls.Should().Be(0);
     }
 
+    [Fact]
+    public async Task Endpoint_Publish_Returns200_ForAnOwner()
+    {
+        await using var harness = await Harness.CreateAsync();
+
+        var response = await harness.PublishAsync(OwnerUser, TenantA, PublishedMenu.Id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadAsStringAsync();
+        payload.Should().Contain("\"success\":true");
+        payload.Should().Contain("\"status\":\"Published\"");
+        harness.Recorder.Calls.Should().Be(1);
+        harness.Recorder.SelectedTenant.Should().Be(TenantA);
+    }
+
+    [Fact]
+    public async Task Endpoint_Unpublish_Returns200_ForAnOwner()
+    {
+        await using var harness = await Harness.CreateAsync();
+
+        var response = await harness.UnpublishAsync(OwnerUser, TenantA, UnpublishedMenu.Id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        var payload = await response.Content.ReadAsStringAsync();
+        payload.Should().Contain("\"success\":true");
+        payload.Should().Contain("\"status\":\"Draft\"");
+        harness.Recorder.Calls.Should().Be(1);
+        harness.Recorder.SelectedTenant.Should().Be(TenantA);
+    }
+
+    [Fact]
+    public async Task Endpoint_Publish_Returns401_WhenUnauthenticated()
+    {
+        await using var harness = await Harness.CreateAsync();
+
+        var request = new HttpRequestMessage(HttpMethod.Patch, $"/api/v1/menus/{PublishedMenu.Id}/publish");
+        var response = await harness.Client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        harness.Recorder.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Endpoint_Publish_Returns403_WhenTheSelectedTenantRoleLacksMenuUpdate()
+    {
+        await using var harness = await Harness.CreateAsync();
+
+        // Owner has a restricted role (no MenuUpdate) in Tenant B.
+        var response = await harness.PublishAsync(OwnerUser, TenantB, PublishedMenu.Id);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        harness.Recorder.Calls.Should().Be(0);
+    }
+
     private sealed class Harness : IAsyncDisposable
     {
         private readonly WebApplication _app;
@@ -285,6 +447,24 @@ public sealed class DefaultMenuEndpointTests
                         });
                 }
 
+                menus
+                    .Setup(x => x.PublishAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(() =>
+                    {
+                        recorder.Calls++;
+                        recorder.SelectedTenant = tenantContext.TenantId;
+                        return PublishedMenu;
+                    });
+
+                menus
+                    .Setup(x => x.UnpublishAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()))
+                    .ReturnsAsync(() =>
+                    {
+                        recorder.Calls++;
+                        recorder.SelectedTenant = tenantContext.TenantId;
+                        return UnpublishedMenu;
+                    });
+
                 return menus.Object;
             });
 
@@ -321,6 +501,30 @@ public sealed class DefaultMenuEndpointTests
             var request = new HttpRequestMessage(
                 HttpMethod.Get,
                 "/api/v1/menus/default");
+
+            request.Headers.Add(TestUserHeader, userId.ToString());
+            request.Headers.Add(TenantHeader, tenantId.ToString());
+
+            return Client.SendAsync(request);
+        }
+
+        public Task<HttpResponseMessage> PublishAsync(Guid userId, Guid tenantId, Guid menuId)
+        {
+            var request = new HttpRequestMessage(
+                HttpMethod.Patch,
+                $"/api/v1/menus/{menuId}/publish");
+
+            request.Headers.Add(TestUserHeader, userId.ToString());
+            request.Headers.Add(TenantHeader, tenantId.ToString());
+
+            return Client.SendAsync(request);
+        }
+
+        public Task<HttpResponseMessage> UnpublishAsync(Guid userId, Guid tenantId, Guid menuId)
+        {
+            var request = new HttpRequestMessage(
+                HttpMethod.Patch,
+                $"/api/v1/menus/{menuId}/unpublish");
 
             request.Headers.Add(TestUserHeader, userId.ToString());
             request.Headers.Add(TenantHeader, tenantId.ToString());
