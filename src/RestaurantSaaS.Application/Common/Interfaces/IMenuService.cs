@@ -27,5 +27,9 @@ public interface IMenuService
 
    Task<MenuDto> SetActiveAsync(Guid menuId, bool isActive, CancellationToken ct = default);
 
+   Task<MenuDto> PublishAsync(Guid menuId, CancellationToken ct = default);
+
+   Task<MenuDto> UnpublishAsync(Guid menuId, CancellationToken ct = default);
+
    Task ArchiveAsync(Guid menuId, CancellationToken ct = default);
 }

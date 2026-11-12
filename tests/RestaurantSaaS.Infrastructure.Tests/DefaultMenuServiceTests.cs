@@ -5,6 +5,7 @@ using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Entities.Tenants;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Seed;
 using RestaurantSaaS.Infrastructure.Services;
 
@@ -321,6 +322,231 @@ public sealed class DefaultMenuServiceTests
 
         menuCount.Should().Be(0);
     }
+
+    // ------------------------------------------------------------------
+    // Publish / Unpublish lifecycle
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task PublishAsync_ValidDraftMenuWithActiveCategory_ChangesStatusToPublished()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+
+        var result = await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.IsActive.Should().BeTrue();
+
+        var persisted = await scenario.Fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == scenario.Menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+    }
+
+    [Fact]
+    public async Task PublishAsync_AlreadyPublishedMenu_IsIdempotent()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+        var result = await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+    }
+
+    [Fact]
+    public async Task PublishAsync_ArchivedMenu_ThrowsDomainException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        scenario.Menu.Archive();
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.PublishAsync(scenario.Menu.Id);
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_InactiveMenu_ThrowsDomainException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        scenario.Menu.SetActive(false);
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.PublishAsync(scenario.Menu.Id);
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_NoActiveCategories_ThrowsDomainException()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Empty Tenant", "empty-tenant");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Empty Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Empty Menu");
+        fx.Db.Menus.Add(menu);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var act = () => service.PublishAsync(menu.Id);
+        await act.Should().ThrowAsync<DomainException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_MissingMenu_ThrowsNotFoundException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        var act = () => scenario.Service.PublishAsync(Guid.NewGuid());
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_CrossTenantMenu_ThrowsNotFoundException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        var otherTenant = Tenant.Create("Other", "other");
+        otherTenant.ChangeStatus(TenantStatus.Active);
+        scenario.Fx.Db.Tenants.Add(otherTenant);
+        await scenario.Fx.Db.SaveChangesAsync();
+        var otherRestaurant = await TestFactory.AddRestaurantAsync(
+            scenario.Fx, otherTenant.Id, "Other Restaurant", RestaurantStatus.Active);
+        var foreignMenu = Menu.Create(otherTenant.Id, otherRestaurant.Id, "Foreign Menu");
+        scenario.Fx.Db.Menus.Add(foreignMenu);
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.PublishAsync(foreignMenu.Id);
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_WithoutMenuUpdatePermission_ThrowsForbiddenException()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var tenant = Tenant.Create("Kitchen Tenant", "kitchen-tenant");
+        tenant.ChangeStatus(TenantStatus.Active);
+        fx.Db.Tenants.Add(tenant);
+        await fx.Db.SaveChangesAsync();
+        fx.TenantContext.SetTenant(tenant.Id);
+        TestFactory.Grant(fx, tenant.Id, "Kitchen", TestFactory.KitchenRoleId);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Kitchen Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Kitchen Menu");
+        fx.Db.Menus.Add(menu);
+        await fx.Db.SaveChangesAsync();
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var act = () => service.PublishAsync(menu.Id);
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_PublishedMenu_ReturnsStatusToDraft()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        var result = await scenario.Service.UnpublishAsync(scenario.Menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Draft.ToString());
+        result.IsActive.Should().BeTrue();
+
+        var persisted = await scenario.Fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == scenario.Menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Draft);
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_DraftMenu_ThrowsDomainException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        var act = () => scenario.Service.UnpublishAsync(scenario.Menu.Id);
+        await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_ArchivedMenu_ThrowsDomainException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        scenario.Menu.Archive();
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.UnpublishAsync(scenario.Menu.Id);
+        await act.Should().ThrowAsync<ConflictException>();
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_CrossTenantMenu_ThrowsNotFoundException()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+        var otherTenant = Tenant.Create("Other", "other");
+        otherTenant.ChangeStatus(TenantStatus.Active);
+        scenario.Fx.Db.Tenants.Add(otherTenant);
+        await scenario.Fx.Db.SaveChangesAsync();
+        var otherRestaurant = await TestFactory.AddRestaurantAsync(
+            scenario.Fx, otherTenant.Id, "Other Restaurant", RestaurantStatus.Active);
+        var foreignMenu = Menu.Create(otherTenant.Id, otherRestaurant.Id, "Foreign Menu");
+        scenario.Fx.Db.Menus.Add(foreignMenu);
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.UnpublishAsync(foreignMenu.Id);
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_WithoutMenuUpdatePermission_ThrowsForbiddenException()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var tenant = Tenant.Create("Kitchen Tenant", "kitchen-tenant");
+        tenant.ChangeStatus(TenantStatus.Active);
+        fx.Db.Tenants.Add(tenant);
+        await fx.Db.SaveChangesAsync();
+        fx.TenantContext.SetTenant(tenant.Id);
+        TestFactory.Grant(fx, tenant.Id, "Kitchen", TestFactory.KitchenRoleId);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Kitchen Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Kitchen Menu");
+        fx.Db.Menus.Add(menu);
+        await fx.Db.SaveChangesAsync();
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        // Permission (MenuUpdate) is validated before the menu/status is inspected,
+        // so a Kitchen member is rejected even though a published menu exists.
+        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var act = () => service.UnpublishAsync(menu.Id);
+        await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    private static async Task<PublishScenario> CreatePublishScenarioAsync()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Pub Tenant", "pub-tenant");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Pub Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Draft Menu");
+        fx.Db.Menus.Add(menu);
+        await fx.Db.SaveChangesAsync();
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+        var service = new MenuService(fx.Db, fx.AccessGuard);
+        return new PublishScenario(fx, tenant, restaurant, menu, service);
+    }
+
+    private sealed record PublishScenario(
+        Fixture Fx,
+        Tenant Tenant,
+        Restaurant Restaurant,
+        Menu Menu,
+        MenuService Service);
 
     private static async Task<Scenario> CreateScenarioAsync()
     {

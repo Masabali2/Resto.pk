@@ -75,6 +75,22 @@ public sealed class MenusController(
        return Ok(ApiResponse<MenuDto>.Ok(result));
    }
 
+   [HttpPatch("menus/{menuId:guid}/publish")]
+   [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuUpdate)]
+   public async Task<ActionResult<ApiResponse<MenuDto>>> Publish(Guid menuId, CancellationToken ct)
+   {
+       var result = await menus.PublishAsync(menuId, ct);
+       return Ok(ApiResponse<MenuDto>.Ok(result));
+   }
+
+   [HttpPatch("menus/{menuId:guid}/unpublish")]
+   [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuUpdate)]
+   public async Task<ActionResult<ApiResponse<MenuDto>>> Unpublish(Guid menuId, CancellationToken ct)
+   {
+       var result = await menus.UnpublishAsync(menuId, ct);
+       return Ok(ApiResponse<MenuDto>.Ok(result));
+   }
+
    [HttpDelete("menus/{menuId:guid}")]
    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.MenuDelete)]
    public async Task<ActionResult<ApiResponse<object?>>> Archive(Guid menuId, CancellationToken ct)

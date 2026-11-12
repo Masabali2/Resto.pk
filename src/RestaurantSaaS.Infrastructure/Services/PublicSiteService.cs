@@ -87,9 +87,10 @@ public sealed class PublicSiteService(ApplicationDbContext db) : IPublicSiteServ
         var normalized = Domain.Entities.Websites.Website.NormalizeSlug(slug);
 
         // Ownership chain resolved entirely server-side: slug -> published website
-        // -> its restaurant -> that restaurant's ACTIVE menus only.
+        // -> its restaurant -> that restaurant's ACTIVE AND PUBLISHED menus only.
         var menus = await db.Menus.AsNoTracking()
             .Where(m => m.IsActive &&
+                        m.Status == MenuStatus.Published &&
                         db.Websites.Any(w => w.Slug == normalized && w.IsPublished &&
                                              w.Status == WebsiteStatus.Published &&
                                              w.RestaurantId == m.RestaurantId &&

@@ -2,6 +2,9 @@ using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Features.Websites.DTOs;
+using RestaurantSaaS.Domain.Entities.Menus;
+using RestaurantSaaS.Domain.Entities.Restaurants;
+using RestaurantSaaS.Domain.Entities.Tenants;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Services;
@@ -303,6 +306,140 @@ public sealed class WebsiteServiceTemplateSelectionTests
         var act = () => service.PublishAsync(foreignWebsite.Id);
 
         await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    // ------------------------------------------------------------------
+    // Public menu visibility (published-menu lifecycle enforcement)
+    // ------------------------------------------------------------------
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_PublishedActiveMenu_ReturnsMenu()
+    {
+        var (fx, publicService, tenantId, restaurantId, slug) = await CreatePublishedWebsiteAsync();
+
+        var menu = Menu.Create(tenantId, restaurantId, "Published Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        menu.Publish(1);
+        await fx.Db.SaveChangesAsync();
+
+        var menus = await publicService.GetMenuBySlugAsync(slug);
+
+        menus.Should().HaveCount(1);
+        menus[0].Id.Should().Be(menu.Id);
+    }
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_DraftMenu_Excluded()
+    {
+        var (fx, publicService, tenantId, restaurantId, slug) = await CreatePublishedWebsiteAsync();
+
+        var menu = Menu.Create(tenantId, restaurantId, "Draft Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        var menus = await publicService.GetMenuBySlugAsync(slug);
+
+        menus.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_PublishedInactiveMenu_Excluded()
+    {
+        var (fx, publicService, tenantId, restaurantId, slug) = await CreatePublishedWebsiteAsync();
+
+        var menu = Menu.Create(tenantId, restaurantId, "Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        menu.Publish(1);
+        menu.SetActive(false);
+        await fx.Db.SaveChangesAsync();
+
+        var menus = await publicService.GetMenuBySlugAsync(slug);
+
+        menus.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_ArchivedMenu_Excluded()
+    {
+        var (fx, publicService, tenantId, restaurantId, slug) = await CreatePublishedWebsiteAsync();
+
+        var menu = Menu.Create(tenantId, restaurantId, "Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        menu.Publish(1);
+        menu.Archive();
+        await fx.Db.SaveChangesAsync();
+
+        var menus = await publicService.GetMenuBySlugAsync(slug);
+
+        menus.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_DraftWebsite_ExcludesPublishedMenu()
+    {
+        var (fx, publicService, tenantId, restaurantId, _) = await CreatePublishedWebsiteAsync();
+        var template = TestFactory.AddTemplate(fx, "Draft", "draft");
+        TestFactory.AddWebsite(fx, tenantId, restaurantId, template.Id, "draft-site");
+
+        var menu = Menu.Create(tenantId, restaurantId, "Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        menu.Publish(1);
+        await fx.Db.SaveChangesAsync();
+
+        // An unpublished website is treated as not-found: its menus are not
+        // publicly reachable (no existence leakage across tenants).
+        var act = () => publicService.GetMenuBySlugAsync("draft-site");
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task GetMenuBySlugAsync_CrossTenantMenu_Excluded()
+    {
+        var (fx, publicService, tenantId, restaurantId, slug) = await CreatePublishedWebsiteAsync();
+
+        var otherTenant = Tenant.Create("Other", "other");
+        otherTenant.ChangeStatus(TenantStatus.Active);
+        fx.Db.Tenants.Add(otherTenant);
+        await fx.Db.SaveChangesAsync();
+        var otherRestaurant = await TestFactory.AddRestaurantAsync(fx, otherTenant.Id, "Other Restaurant", RestaurantStatus.Active);
+        var foreignMenu = Menu.Create(otherTenant.Id, otherRestaurant.Id, "Foreign Menu");
+        fx.Db.Menus.Add(foreignMenu);
+        var category = MenuCategory.Create(foreignMenu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        foreignMenu.Publish(1);
+        await fx.Db.SaveChangesAsync();
+
+        var menus = await publicService.GetMenuBySlugAsync(slug);
+
+        menus.Should().BeEmpty();
+    }
+
+    private static async Task<(Fixture Fx, PublicSiteService PublicService, Guid TenantId, Guid RestaurantId, string Slug)>
+        CreatePublishedWebsiteAsync()
+    {
+        var fx = TestFactory.Create();
+        TestFactory.SeedRolesAsync(fx.Db).GetAwaiter().GetResult();
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Tenant One", "tenant-one");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "R1", RestaurantStatus.Active);
+        var template = TestFactory.AddTemplate(fx, "Classic", "classic");
+        var website = TestFactory.AddWebsite(fx, tenant.Id, restaurant.Id, template.Id, "site-1");
+
+        var websiteService = TestFactory.CreateWebsiteService(fx);
+        await websiteService.SaveDraftAsync(website.Id, new SaveWebsiteDraftRequest(ValidDraftJson));
+        await websiteService.PublishAsync(website.Id);
+
+        return (fx, TestFactory.CreatePublicSiteService(fx), tenant.Id, restaurant.Id, "site-1");
     }
 
     private static Task<(Fixture Fx, WebsiteService Service)> CreateAuthorizedFixtureAsync()
