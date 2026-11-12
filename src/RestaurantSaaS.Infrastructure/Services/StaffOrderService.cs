@@ -36,6 +36,7 @@ public sealed class StaffOrderService(
     public async Task<PagedResult<StaffOrderDto>> ListAsync(
         Guid? restaurantId,
         OrderStatus? status,
+        string? search,
         int page,
         int pageSize,
         CancellationToken ct = default)
@@ -53,6 +54,15 @@ public sealed class StaffOrderService(
 
         if (status.HasValue)
             query = query.Where(o => o.Status == status.Value);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var searchTerm = search.Trim();
+            query = query.Where(o =>
+                o.OrderNumber.Contains(searchTerm) ||
+                o.CustomerName.Contains(searchTerm) ||
+                o.CustomerPhone.Contains(searchTerm));
+        }
 
         var total = await query.CountAsync(ct);
 
@@ -163,6 +173,7 @@ public sealed class StaffOrderService(
         var tenantId = tenantContext.GetRequiredTenantId();
 
         var order = await db.Orders
+            .Include(o => o.Items)
             .FirstOrDefaultAsync(o => o.Id == orderId, ct)
             ?? null;
 

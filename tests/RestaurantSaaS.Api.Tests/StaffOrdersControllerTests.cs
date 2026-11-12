@@ -87,12 +87,12 @@ public class StaffOrdersControllerTests
         };
 
         _orderService
-            .Setup(s => s.ListAsync(restaurantId, null, 1, 20, It.IsAny<CancellationToken>()))
+            .Setup(s => s.ListAsync(restaurantId, null, null, 1, 20, It.IsAny<CancellationToken>()))
             .ReturnsAsync(expectedResult);
 
         var controller = CreateController(authenticated: true, userId: Guid.NewGuid());
 
-        var result = await controller.List(restaurantId, null, 1, 20, CancellationToken.None);
+        var result = await controller.List(restaurantId, null, null, 1, 20, CancellationToken.None);
 
         var ok = result.Result as ObjectResult;
         ok!.StatusCode.Should().Be(200);
@@ -144,6 +144,32 @@ public class StaffOrdersControllerTests
         var envelope = ok.Value as ApiResponse<StaffOrderDto>;
         envelope!.Success.Should().BeTrue();
         envelope.Data!.Id.Should().Be(orderId);
+    }
+
+    [Fact]
+    public async Task List_WithSearch_FiltersResults()
+    {
+        var restaurantId = Guid.NewGuid();
+        var expectedResult = new PagedResult<StaffOrderDto>
+        {
+            Items = new List<StaffOrderDto>(),
+            Page = 1,
+            PageSize = 20,
+            TotalCount = 0
+        };
+
+        _orderService
+            .Setup(s => s.ListAsync(restaurantId, null, "ORD-001", 1, 20, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(expectedResult);
+
+        var controller = CreateController(authenticated: true, userId: Guid.NewGuid());
+
+        var result = await controller.List(restaurantId, null, "ORD-001", 1, 20, CancellationToken.None);
+
+        var ok = result.Result as ObjectResult;
+        ok!.StatusCode.Should().Be(200);
+        var envelope = ok.Value as ApiResponse<PagedResult<StaffOrderDto>>;
+        envelope!.Success.Should().BeTrue();
     }
 
     [Fact]

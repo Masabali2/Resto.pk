@@ -20,6 +20,7 @@ public interface IStaffOrderService
     Task<PagedResult<StaffOrderDto>> ListAsync(
         Guid? restaurantId,
         OrderStatus? status,
+        string? search,
         int page,
         int pageSize,
         CancellationToken ct = default);

@@ -24,11 +24,12 @@ public sealed class StaffOrdersController(
     public async Task<ActionResult<ApiResponse<PagedResult<StaffOrderDto>>>> List(
         Guid restaurantId,
         [FromQuery] OrderStatus? status,
+        [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        var result = await orderService.ListAsync(restaurantId, status, page, pageSize, ct);
+        var result = await orderService.ListAsync(restaurantId, status, search, page, pageSize, ct);
         return Ok(ApiResponse<PagedResult<StaffOrderDto>>.Ok(result));
     }
 

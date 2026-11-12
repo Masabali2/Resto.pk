@@ -221,7 +221,7 @@ public class StaffOrderServiceTests
     }
 
     [Fact]
-    public async Task GetByIdAsync_SameTenant_ReturnsOrder()
+    public async Task GetByIdAsync_SameTenant_ReturnsOrderWithItems()
     {
         var tenantContextMock = new Mock<ITenantContext>();
         var currentUserMock = new Mock<ICurrentUserService>();
@@ -238,6 +238,59 @@ public class StaffOrderServiceTests
         result.Should().NotBeNull();
         result!.Id.Should().Be(orderId);
         result.OrderNumber.Should().StartWith("ORD-");
+        result.Items.Should().NotBeEmpty();
+        result.Items.Should().AllSatisfy(i =>
+        {
+            i.ItemName.Should().NotBeNullOrWhiteSpace();
+            i.UnitPrice.Should().BeGreaterThan(0);
+            i.Quantity.Should().BeGreaterThan(0);
+            i.LineTotal.Should().BeGreaterThan(0);
+            i.Currency.Should().NotBeNullOrWhiteSpace();
+        });
+    }
+
+    [Fact]
+    public async Task ListAsync_WithSearch_ReturnsMatchingOrders()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, _) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 3);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        // Use the order number of the first order as search term
+        var orderId = GetFirstOrderId(options, tenantId);
+        using var readDb = new ApplicationDbContext(
+            options,
+            new Mock<ITenantContext>().Object,
+            new Mock<IDateTimeProvider>().Object);
+        var firstOrderNumber = readDb.Orders.First().OrderNumber;
+
+        var result = await service.ListAsync(restaurantId, null, firstOrderNumber, 1, 10);
+
+        result.Items.Should().NotBeEmpty();
+        result.Items.Should().AllSatisfy(o => o.OrderNumber.Should().Contain(firstOrderNumber));
+    }
+
+    [Fact]
+    public async Task ListAsync_WithSearch_NoMatch_ReturnsEmpty()
+    {
+        var tenantContextMock = new Mock<ITenantContext>();
+        var currentUserMock = new Mock<ICurrentUserService>();
+        var membershipMock = new Mock<ITenantMembershipService>();
+
+        var (options, tenantId, restaurantId, _) = CreateInMemoryDbWithOrders(
+            tenantContextMock, currentUserMock, membershipMock, orderCount: 2);
+
+        var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
+
+        var result = await service.ListAsync(restaurantId, null, "NONEXISTENT-ORDER", 1, 10);
+
+        result.Items.Should().BeEmpty();
+        result.TotalCount.Should().Be(0);
     }
 
     [Fact]
