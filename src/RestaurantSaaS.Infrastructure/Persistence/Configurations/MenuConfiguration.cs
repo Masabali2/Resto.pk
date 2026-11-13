@@ -34,6 +34,8 @@ public sealed class MenuConfiguration : IEntityTypeConfiguration<Menu>
             .IsRequired()
             .HasConversion<int>();
 
+        builder.Property(m => m.PublicUrl);
+
         builder.Property(m => m.CreatedAt)
             .IsRequired();
 

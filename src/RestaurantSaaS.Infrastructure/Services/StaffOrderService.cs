@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
@@ -12,6 +13,7 @@ using RestaurantSaaS.Domain.Entities.Orders;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Domain.ValueObjects;
+using RestaurantSaaS.Infrastructure.Hubs;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Tenancy;
 
@@ -31,7 +33,9 @@ public sealed class StaffOrderService(
     ICurrentUserService currentUser,
     ITenantMembershipService membershipService,
     IDateTimeProvider dateTimeProvider,
-    IOrderNumberGenerator orderNumberGenerator) : IStaffOrderService
+    IOrderNumberGenerator orderNumberGenerator,
+    INotificationService notificationService = null!,
+    IHubContext<OrderHub> hubContext = null!) : IStaffOrderService
 {
     public async Task<PagedResult<StaffOrderDto>> ListAsync(
         Guid? restaurantId,
@@ -103,7 +107,7 @@ public sealed class StaffOrderService(
         Guid changedByUserId,
         CancellationToken ct = default)
     {
-        await GetActiveTenantIdAsync(
+        var tenantId = await GetActiveTenantIdAsync(
             Permissions.OrderUpdate,
             ct,
             request.NewStatus == OrderStatus.Cancelled ? Permissions.OrderCancel : null);
@@ -127,6 +131,36 @@ public sealed class StaffOrderService(
         db.OrderStatusHistories.Add(history);
 
         await db.SaveChangesAsync(ct);
+
+        // Publish status change to staff (restaurant group) and to the
+        // customer tracking page (per-order group) after successful
+        // persistence. The backend is the source of truth; the UI updates
+        // only from the confirmed event.
+        var statusChangedPayload = new
+        {
+            orderId,
+            orderNumber = order.OrderNumber,
+            restaurantId,
+            status = order.Status,
+            completedAt = order.CompletedAt,
+            cancelledAt = order.CancelledAt,
+            updatedAt = order.UpdatedAt
+        };
+
+        if (notificationService is not null)
+        {
+            await notificationService.NotifyRestaurantAsync(
+                tenantId,
+                restaurantId,
+                "order.status_changed",
+                statusChangedPayload);
+        }
+
+        if (hubContext is not null)
+        {
+            await hubContext.Clients.Group($"order:{orderId}")
+                .SendAsync("order.status_changed", new[] { statusChangedPayload }, ct);
+        }
 
         return MapToDto(order);
     }
@@ -498,6 +532,42 @@ public sealed class StaffOrderService(
 
         db.Orders.Add(order);
         await db.SaveChangesAsync(ct);
+
+        // Publish new-order event so the restaurant's staff dashboard
+        // updates without a page reload.
+        if (notificationService is not null)
+        {
+            await notificationService.NotifyRestaurantAsync(
+            tenantId,
+            restaurantId,
+            "order.created",
+            new
+            {
+                orderId = order.Id,
+                orderNumber = order.OrderNumber,
+                restaurantId,
+                status = order.Status,
+                orderType = order.OrderType,
+                customerName = order.CustomerName,
+                customerPhone = order.CustomerPhone,
+                customerEmail = order.CustomerEmail,
+                subtotal = order.Subtotal,
+                taxAmount = order.TaxAmount,
+                totalAmount = order.TotalAmount,
+                currency = order.Currency,
+                specialInstructions = order.SpecialInstructions,
+                createdAt = order.CreatedAt,
+                items = orderItems.Select(oi => new
+                {
+                    oi.MenuItemId,
+                    oi.ItemName,
+                    oi.UnitPrice,
+                    oi.Quantity,
+                    oi.LineTotal,
+                    oi.Currency
+                })
+            });
+        }
 
         return MapToDto(order);
     }

@@ -12,7 +12,8 @@ public sealed record MenuDto(
    bool IsActive,
    string Status,
    DateTime CreatedAt,
-   DateTime? UpdatedAt);
+   DateTime? UpdatedAt,
+   string? PublicUrl);
 
 public sealed record MenuDetailsDto(
    Guid Id,
@@ -24,6 +25,7 @@ public sealed record MenuDetailsDto(
    string Status,
    DateTime CreatedAt,
    DateTime? UpdatedAt,
+   string? PublicUrl,
    IReadOnlyList<MenuCategoryDto> Categories);
 
 /// <summary>

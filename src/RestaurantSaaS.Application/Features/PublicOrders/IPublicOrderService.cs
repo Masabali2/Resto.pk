@@ -46,4 +46,14 @@ public interface IPublicOrderService
         Guid restaurantId,
         string rawTrackingToken,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Resolves the order id for a raw tracking token at a restaurant, used to
+    /// scope real-time tracking subscriptions without exposing order ids to the
+    /// caller. Returns null when no matching order exists.
+    /// </summary>
+    Task<Guid?> GetOrderIdByTrackingTokenAsync(
+        Guid restaurantId,
+        string rawTrackingToken,
+        CancellationToken ct = default);
 }

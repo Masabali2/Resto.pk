@@ -8,31 +8,33 @@ namespace RestaurantSaaS.Infrastructure.Services;
 internal static class MenuMapping
 {
    public static MenuDto ToDto(Menu menu) => new(
-       menu.Id,
-       menu.TenantId,
-       menu.RestaurantId,
-       menu.Name,
-       menu.Description,
-       menu.IsActive,
-       menu.Status.ToString(),
-       menu.CreatedAt,
-       menu.UpdatedAt);
+        menu.Id,
+        menu.TenantId,
+        menu.RestaurantId,
+        menu.Name,
+        menu.Description,
+        menu.IsActive,
+        menu.Status.ToString(),
+        menu.CreatedAt,
+        menu.UpdatedAt,
+        menu.PublicUrl);
 
    public static MenuDetailsDto ToDetailsDto(Menu menu) => new(
-       menu.Id,
-       menu.TenantId,
-       menu.RestaurantId,
-       menu.Name,
-       menu.Description,
-       menu.IsActive,
-       menu.Status.ToString(),
-       menu.CreatedAt,
-       menu.UpdatedAt,
-       menu.Categories
-           .OrderBy(c => c.DisplayOrder)
-           .ThenBy(c => c.Name)
-           .Select(ToDto)
-           .ToList());
+        menu.Id,
+        menu.TenantId,
+        menu.RestaurantId,
+        menu.Name,
+        menu.Description,
+        menu.IsActive,
+        menu.Status.ToString(),
+        menu.CreatedAt,
+        menu.UpdatedAt,
+        menu.PublicUrl,
+        menu.Categories
+            .OrderBy(c => c.DisplayOrder)
+            .ThenBy(c => c.Name)
+            .Select(ToDto)
+            .ToList());
 
    public static MenuCategoryDto ToDto(MenuCategory category, int itemCount = 0) => new(
        category.Id,

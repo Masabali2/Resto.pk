@@ -13,6 +13,7 @@ using System.Reflection;
 using RestaurantSaaS.Domain.Entities.Identity;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Services;
+using RestaurantSaaS.Infrastructure.Hubs;
 using RestaurantSaaS.Infrastructure.Tenancy;
 using RestaurantSaaS.Application.Features.Staff;
 using RestaurantSaaS.Application.Common.Entitlements;
@@ -126,6 +127,11 @@ public static class DependencyInjection
         services.AddScoped<IPublicCartService, PublicCartService>();
         services.AddScoped<IPublicOrderService, PublicOrderService>();
         services.AddScoped<IStaffOrderService, StaffOrderService>();
+
+        // Real-time order delivery: SignalR hub context is used by
+        // SignalRNotificationService to fan-out order events to tenant-scoped
+        // groups (staff) and per-order groups (customers tracking an order).
+        services.AddScoped<INotificationService, SignalRNotificationService>();
 
         // Image upload / asset management.
         services.AddSingleton<IImageDimensionReader, ImageDimensionReader>();

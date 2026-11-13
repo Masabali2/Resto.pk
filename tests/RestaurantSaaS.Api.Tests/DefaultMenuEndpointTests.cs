@@ -72,6 +72,7 @@ public sealed class DefaultMenuEndpointTests
         true,
         MenuStatus.Published.ToString(),
         DateTime.UtcNow,
+        null,
         null);
 
     private static readonly MenuDto UnpublishedMenu = new(
@@ -83,6 +84,7 @@ public sealed class DefaultMenuEndpointTests
         true,
         MenuStatus.Draft.ToString(),
         DateTime.UtcNow,
+        null,
         null);
 
     [Fact]

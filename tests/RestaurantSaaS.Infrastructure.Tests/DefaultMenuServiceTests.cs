@@ -1,9 +1,11 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Entities.Restaurants;
 using RestaurantSaaS.Domain.Entities.Tenants;
+using RestaurantSaaS.Domain.Entities.Websites;
 using RestaurantSaaS.Domain.Enums;
 using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Infrastructure.Seed;
@@ -249,7 +251,7 @@ public sealed class DefaultMenuServiceTests
             "Kitchen restaurant",
             RestaurantStatus.Active);
 
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
         var act = () => service.CopyDefaultAsync(restaurant.Id);
 
         await act.Should().ThrowAsync<ForbiddenException>();
@@ -274,7 +276,7 @@ public sealed class DefaultMenuServiceTests
             "No demo restaurant",
             RestaurantStatus.Active);
 
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
 
         await FluentActions
             .Awaiting(() => service.GetDefaultAsync())
@@ -388,7 +390,7 @@ public sealed class DefaultMenuServiceTests
         fx.Db.Menus.Add(menu);
         await fx.Db.SaveChangesAsync();
 
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
         var act = () => service.PublishAsync(menu.Id);
         await act.Should().ThrowAsync<DomainException>();
     }
@@ -438,7 +440,7 @@ public sealed class DefaultMenuServiceTests
         fx.Db.MenuCategories.Add(category);
         await fx.Db.SaveChangesAsync();
 
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
         var act = () => service.PublishAsync(menu.Id);
         await act.Should().ThrowAsync<ForbiddenException>();
     }
@@ -519,9 +521,89 @@ public sealed class DefaultMenuServiceTests
 
         // Permission (MenuUpdate) is validated before the menu/status is inspected,
         // so a Kitchen member is rejected even though a published menu exists.
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
         var act = () => service.UnpublishAsync(menu.Id);
         await act.Should().ThrowAsync<ForbiddenException>();
+    }
+
+    [Fact]
+    public async Task PublishAsync_PersistsPublicUrlOnTheMenu()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+
+        var result = await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.PublicUrl.Should().Be("https://localhost:4200/r/pub-site/menu");
+
+        var persisted = await scenario.Fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == scenario.Menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+        persisted.PublicUrl.Should().Be("https://localhost:4200/r/pub-site/menu");
+    }
+
+    [Fact]
+    public async Task GetByIdAsync_ReturnsPersistedPublicUrlAfterPublish()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        var reloaded = await scenario.Service.GetByIdAsync(scenario.Menu.Id);
+
+        reloaded.PublicUrl.Should().Be("https://localhost:4200/r/pub-site/menu");
+        reloaded.Status.Should().Be(MenuStatus.Published.ToString());
+    }
+
+    [Fact]
+    public async Task PublishAsync_PublicUrlIsTenantIsolated()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        var otherTenant = Tenant.Create("Other", "other");
+        otherTenant.ChangeStatus(TenantStatus.Active);
+        scenario.Fx.Db.Tenants.Add(otherTenant);
+        await scenario.Fx.Db.SaveChangesAsync();
+        var otherRestaurant = await TestFactory.AddRestaurantAsync(
+            scenario.Fx, otherTenant.Id, "Other Restaurant", RestaurantStatus.Active);
+        var foreignMenu = Menu.Create(otherTenant.Id, otherRestaurant.Id, "Foreign Menu");
+        scenario.Fx.Db.Menus.Add(foreignMenu);
+        await scenario.Fx.Db.SaveChangesAsync();
+
+        var act = () => scenario.Service.GetByIdAsync(foreignMenu.Id);
+        await act.Should().ThrowAsync<NotFoundException>();
+    }
+
+    [Fact]
+    public async Task UnpublishAsync_PreservesPersistedPublicUrl()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+        await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        var result = await scenario.Service.UnpublishAsync(scenario.Menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Draft.ToString());
+
+        var persisted = await scenario.Fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == scenario.Menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Draft);
+        persisted.PublicUrl.Should().Be("https://localhost:4200/r/pub-site/menu");
+    }
+
+    [Fact]
+    public async Task PublishAsync_RepublishKeepsPublicUrlStable()
+    {
+        var scenario = await CreatePublishScenarioAsync();
+
+        var first = await scenario.Service.PublishAsync(scenario.Menu.Id);
+        await scenario.Service.UnpublishAsync(scenario.Menu.Id);
+        var second = await scenario.Service.PublishAsync(scenario.Menu.Id);
+
+        first.PublicUrl.Should().Be("https://localhost:4200/r/pub-site/menu");
+        second.PublicUrl.Should().Be(first.PublicUrl);
     }
 
     private static async Task<PublishScenario> CreatePublishScenarioAsync()
@@ -537,9 +619,26 @@ public sealed class DefaultMenuServiceTests
         var category = MenuCategory.Create(menu.Id, "Burgers");
         fx.Db.MenuCategories.Add(category);
         await fx.Db.SaveChangesAsync();
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+
+        var template = WebsiteTemplate.Create("Pub Template", "pub-template");
+        fx.Db.WebsiteTemplates.Add(template);
+        var website = Website.Create(tenant.Id, restaurant.Id, template.Id, "Pub Site", "pub-site");
+        var draft = WebsiteConfiguration.CreateDraft(website.Id, "{}", 1);
+        website.Publish(draft, template, DateTime.UtcNow);
+        fx.Db.Websites.Add(website);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
         return new PublishScenario(fx, tenant, restaurant, menu, service);
     }
+
+    private static IConfiguration CreateConfiguration() =>
+        new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Frontend:BaseUrl"] = "https://localhost:4200"
+            })
+            .Build();
 
     private sealed record PublishScenario(
         Fixture Fx,
@@ -568,7 +667,7 @@ public sealed class DefaultMenuServiceTests
             "Acme Downtown",
             RestaurantStatus.Active);
 
-        var service = new MenuService(fx.Db, fx.AccessGuard);
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
 
         return new Scenario(fx, tenant, restaurant, service);
     }

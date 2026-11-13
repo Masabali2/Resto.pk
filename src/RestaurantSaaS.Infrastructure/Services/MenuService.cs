@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using RestaurantSaaS.Application.Common.Authorization;
 using RestaurantSaaS.Application.Common.Exceptions;
 using RestaurantSaaS.Application.Common.Models;
@@ -13,7 +14,7 @@ using RestaurantSaaS.Infrastructure.Seed;
 
 namespace RestaurantSaaS.Infrastructure.Services;
 
-public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard accessGuard) : IMenuService
+public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard accessGuard, IConfiguration configuration) : IMenuService
 {
    public async Task<MenuDto> CreateAsync(Guid restaurantId, CreateMenuRequest request, CancellationToken ct = default)
    {
@@ -76,17 +77,18 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
                c.Items.Count))
            .ToListAsync(ct);
 
-       return new MenuDetailsDto(
-           menu.Id,
-           menu.TenantId,
-           menu.RestaurantId,
-           menu.Name,
-           menu.Description,
-           menu.IsActive,
-           menu.Status.ToString(),
-           menu.CreatedAt,
-           menu.UpdatedAt,
-           categories);
+        return new MenuDetailsDto(
+            menu.Id,
+            menu.TenantId,
+            menu.RestaurantId,
+            menu.Name,
+            menu.Description,
+            menu.IsActive,
+            menu.Status.ToString(),
+            menu.CreatedAt,
+            menu.UpdatedAt,
+            menu.PublicUrl,
+            categories);
    }
 
    public async Task<DefaultMenuDetailsDto> GetDefaultAsync(CancellationToken ct = default)
@@ -213,16 +215,23 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
        return MenuMapping.ToDto(menu);
    }
 
-   public async Task<MenuDto> PublishAsync(Guid menuId, CancellationToken ct = default)
-   {
-       var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuUpdate, ct);
-       var menu = await LoadOwnedMenuAsync(menuId, tenantId, ct);
-       var categoryCount = await db.MenuCategories
-           .CountAsync(c => c.MenuId == menu.Id && !c.IsDeleted && c.IsActive, ct);
-       menu.Publish(categoryCount);
-       await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(menu);
-   }
+    public async Task<MenuDto> PublishAsync(Guid menuId, CancellationToken ct = default)
+    {
+        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuUpdate, ct);
+        var menu = await LoadOwnedMenuAsync(menuId, tenantId, ct);
+        var categoryCount = await db.MenuCategories
+            .CountAsync(c => c.MenuId == menu.Id && !c.IsDeleted && c.IsActive, ct);
+        menu.Publish(categoryCount);
+
+        var publicUrl = await ResolvePublicUrlAsync(menu, ct);
+        if (publicUrl is not null)
+        {
+            menu.SetPublicUrl(publicUrl);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return MenuMapping.ToDto(menu);
+    }
 
    public async Task<MenuDto> UnpublishAsync(Guid menuId, CancellationToken ct = default)
    {
@@ -230,14 +239,51 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
        var menu = await LoadOwnedMenuAsync(menuId, tenantId, ct);
        if (menu.Status != MenuStatus.Published)
            throw new ConflictException("Only a published menu can be unpublished.");
-       menu.Unpublish();
-       await db.SaveChangesAsync(ct);
-       return MenuMapping.ToDto(menu);
-   }
+        menu.Unpublish();
+        await db.SaveChangesAsync(ct);
+        return MenuMapping.ToDto(menu);
+    }
 
-   public async Task ArchiveAsync(Guid menuId, CancellationToken ct = default)
-   {
-       var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuDelete, ct);
+    /// <summary>
+    /// Resolves the authoritative public customer-facing URL for a published
+    /// menu. The value is derived entirely server-side from the configured
+    /// frontend base URL and the restaurant's published website slug — it is
+    /// never accepted from callers. Returns null when no base URL is configured
+    /// or the restaurant has no published website, in which case publishing
+    /// still succeeds without a URL.
+    /// </summary>
+    private async Task<string?> ResolvePublicUrlAsync(Menu menu, CancellationToken ct)
+    {
+        var frontendBaseUrl = configuration["Frontend:BaseUrl"];
+        if (string.IsNullOrWhiteSpace(frontendBaseUrl))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(frontendBaseUrl, UriKind.Absolute, out var baseUri))
+        {
+            return null;
+        }
+
+        var slug = await db.Websites.AsNoTracking()
+            .Where(w => w.TenantId == menu.TenantId
+                        && w.RestaurantId == menu.RestaurantId
+                        && w.IsPublished
+                        && w.Status == WebsiteStatus.Published)
+            .Select(w => w.Slug)
+            .FirstOrDefaultAsync(ct);
+
+        if (string.IsNullOrWhiteSpace(slug))
+        {
+            return null;
+        }
+
+        return $"{baseUri.ToString().TrimEnd('/')}/r/{slug}/menu";
+    }
+
+    public async Task ArchiveAsync(Guid menuId, CancellationToken ct = default)
+    {
+        var tenantId = await accessGuard.EnsurePermissionAsync(Permissions.MenuDelete, ct);
        var menu = await LoadOwnedMenuAsync(menuId, tenantId, ct);
        menu.Archive();
        await db.SaveChangesAsync(ct);

@@ -15,6 +15,15 @@ public class Menu : AuditableEntity, ITenantOwned
     public bool IsActive { get; private set; } = true;
     public MenuStatus Status { get; private set; } = MenuStatus.Draft;
 
+    /// <summary>
+    /// The persisted public customer-facing URL for this menu (e.g.
+    /// <c>{frontendBaseUrl}/r/{websiteSlug}/menu</c>). Populated by the publish
+    /// operation and kept stable across republishes while the website slug is
+    /// stable. Null when the menu is not published or no public URL could be
+    /// resolved. Never derived from caller-supplied input.
+    /// </summary>
+    public string? PublicUrl { get; private set; }
+
     public Restaurants.Restaurant Restaurant { get; private set; } = null!;
 
     public ICollection<MenuCategory> Categories { get; private set; }
@@ -111,6 +120,17 @@ public class Menu : AuditableEntity, ITenantOwned
             throw new DomainException("MENU_NOT_PUBLISHED", "Only a published menu can be unpublished.");
 
         Status = MenuStatus.Draft;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Records the authoritative public URL for this menu. The URL is produced
+    /// server-side from the published website slug and the configured frontend
+    /// base URL; it is never accepted from callers.
+    /// </summary>
+    public void SetPublicUrl(string? publicUrl)
+    {
+        PublicUrl = publicUrl;
         UpdatedAt = DateTime.UtcNow;
     }
 

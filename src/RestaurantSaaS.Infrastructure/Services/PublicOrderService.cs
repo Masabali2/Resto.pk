@@ -28,7 +28,8 @@ public sealed class PublicOrderService(
     ITenantContext tenantContext,
     IDateTimeProvider dateTimeProvider,
     IOrderNumberGenerator orderNumberGenerator,
-    IOrderTrackingTokenService trackingTokenService) : IPublicOrderService
+    IOrderTrackingTokenService trackingTokenService,
+    INotificationService notificationService = null!) : IPublicOrderService
 {
     public async Task<CreatePublicOrderResponse> CreateOrderFromCartAsync(
         Guid restaurantId,
@@ -139,6 +140,42 @@ public sealed class PublicOrderService(
             throw new DomainException("CART_ALREADY_CONVERTED", "This cart has already been used to create an order.");
         }
 
+        // Publish new-order event after successful persistence so the
+        // restaurant's staff dashboard updates without a page reload.
+        if (notificationService is not null)
+        {
+            await notificationService.NotifyRestaurantAsync(
+                tenantId,
+                restaurantId,
+                "order.created",
+                new
+                {
+                    orderId = order.Id,
+                    orderNumber = order.OrderNumber,
+                    restaurantId,
+                    status = order.Status,
+                    orderType = order.OrderType,
+                    customerName = order.CustomerName,
+                    customerPhone = order.CustomerPhone,
+                    customerEmail = order.CustomerEmail,
+                    subtotal = order.Subtotal,
+                    taxAmount = order.TaxAmount,
+                    totalAmount = order.TotalAmount,
+                    currency = order.Currency,
+                    specialInstructions = order.SpecialInstructions,
+                    createdAt = order.CreatedAt,
+                    items = orderItems.Select(oi => new
+                    {
+                        oi.MenuItemId,
+                        oi.ItemName,
+                        oi.UnitPrice,
+                        oi.Quantity,
+                        oi.LineTotal,
+                        oi.Currency
+                    })
+                });
+        }
+
         return MapToResponse(order, rawTrackingToken, orderItems);
     }
 
@@ -228,6 +265,42 @@ public sealed class PublicOrderService(
 
         db.Orders.Add(order);
         await db.SaveChangesAsync(ct);
+
+        // Publish new-order event after successful persistence so the
+        // restaurant's staff dashboard updates without a page reload.
+        if (notificationService is not null)
+        {
+            await notificationService.NotifyRestaurantAsync(
+                tenantId,
+                restaurantId,
+                "order.created",
+                new
+                {
+                    orderId = order.Id,
+                    orderNumber = order.OrderNumber,
+                    restaurantId,
+                    status = order.Status,
+                    orderType = order.OrderType,
+                    customerName = order.CustomerName,
+                    customerPhone = order.CustomerPhone,
+                    customerEmail = order.CustomerEmail,
+                    subtotal = order.Subtotal,
+                    taxAmount = order.TaxAmount,
+                    totalAmount = order.TotalAmount,
+                    currency = order.Currency,
+                    specialInstructions = order.SpecialInstructions,
+                    createdAt = order.CreatedAt,
+                    items = orderItems.Select(oi => new
+                    {
+                        oi.MenuItemId,
+                        oi.ItemName,
+                        oi.UnitPrice,
+                        oi.Quantity,
+                        oi.LineTotal,
+                        oi.Currency
+                    })
+                });
+        }
 
         return MapToResponse(order, rawTrackingToken, orderItems);
     }
@@ -347,6 +420,22 @@ public sealed class PublicOrderService(
             return null;
 
         return MapToTrackingDto(order);
+    }
+
+    public async Task<Guid?> GetOrderIdByTrackingTokenAsync(
+        Guid restaurantId,
+        string rawTrackingToken,
+        CancellationToken ct = default)
+    {
+        var trackingTokenHash = trackingTokenService.Hash(rawTrackingToken);
+
+        return await db.Orders
+            .AsNoTracking()
+            .Where(o =>
+                o.TrackingTokenHash == trackingTokenHash &&
+                o.RestaurantId == restaurantId)
+            .Select(o => o.Id)
+            .FirstOrDefaultAsync(ct);
     }
 
     private static PublicOrderTrackingDto MapToTrackingDto(Order order)

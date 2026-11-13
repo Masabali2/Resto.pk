@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi;
@@ -16,6 +17,7 @@ using RestaurantSaaS.Infrastructure;
 using RestaurantSaaS.Infrastructure.Authorization;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Seed;
+using RestaurantSaaS.Infrastructure.Hubs;
 using Serilog;
 using System.Text;
 using System.Text.Json.Serialization;
@@ -87,6 +89,8 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddInfrastructure(builder.Configuration);
+
+builder.Services.AddSignalR();
 
 builder.Services.AddTenantAuthorization();
 
@@ -206,6 +210,8 @@ app.UseMiddleware<TenantResolutionMiddleware>();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapHub<OrderHub>(OrderHub.HubPath);
 
 app.MapGet("/api/antiforgery-token", (IAntiforgery antiforgery, HttpContext context) =>
 {

@@ -177,7 +177,7 @@ public class StaffOrderServiceTests
 
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var result = await service.ListAsync(null, null, 1, 10);
+        var result = await service.ListAsync(null, null, null, 1, 10);
 
         result.Items.Should().HaveCount(3);
         result.TotalCount.Should().Be(3);
@@ -196,7 +196,7 @@ public class StaffOrderServiceTests
 
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var result = await service.ListAsync(restaurantId, null, 1, 10);
+        var result = await service.ListAsync(restaurantId, null, null, 1, 10);
 
         result.Items.Should().HaveCount(3);
         result.Items.Should().AllSatisfy(o => o.Id.Should().NotBe(Guid.Empty));
@@ -214,7 +214,7 @@ public class StaffOrderServiceTests
 
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var result = await service.ListAsync(null, OrderStatus.New, 1, 10);
+        var result = await service.ListAsync(null, OrderStatus.New, null, 1, 10);
 
         result.Items.Should().HaveCount(2);
         result.Items.Should().AllSatisfy(o => o.Status.Should().Be(OrderStatus.New));
@@ -263,9 +263,13 @@ public class StaffOrderServiceTests
 
         // Use the order number of the first order as search term
         var orderId = GetFirstOrderId(options, tenantId);
+        var tenantContextForRead = new Mock<ITenantContext>();
+        tenantContextForRead.Setup(t => t.HasTenant).Returns(true);
+        tenantContextForRead.Setup(t => t.TenantId).Returns(tenantId);
+        tenantContextForRead.Setup(t => t.GetRequiredTenantId()).Returns(tenantId);
         using var readDb = new ApplicationDbContext(
             options,
-            new Mock<ITenantContext>().Object,
+            tenantContextForRead.Object,
             new Mock<IDateTimeProvider>().Object);
         var firstOrderNumber = readDb.Orders.First().OrderNumber;
 
@@ -482,7 +486,7 @@ public class StaffOrderServiceTests
 
         var service = CreateService(options, tenantContextMock, currentUserMock, membershipMock);
 
-        var act = () => service.ListAsync(null, null, 1, 10);
+        var act = () => service.ListAsync(null, null, null, 1, 10);
 
         await act.Should().ThrowAsync<NotAuthenticatedException>();
     }
