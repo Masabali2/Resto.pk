@@ -8,6 +8,7 @@ using RestaurantSaaS.Application.Features.MenuItems.DTOs;
 using RestaurantSaaS.Application.Features.Menus.DTOs;
 using RestaurantSaaS.Domain.Entities.Menus;
 using RestaurantSaaS.Domain.Enums;
+using RestaurantSaaS.Domain.Exceptions;
 using RestaurantSaaS.Domain.ValueObjects;
 using RestaurantSaaS.Infrastructure.Persistence;
 using RestaurantSaaS.Infrastructure.Seed;
@@ -221,10 +222,24 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
         var menu = await LoadOwnedMenuAsync(menuId, tenantId, ct);
         var categoryCount = await db.MenuCategories
             .CountAsync(c => c.MenuId == menu.Id && !c.IsDeleted && c.IsActive, ct);
+
+        if (menu.Status == MenuStatus.Archived)
+            throw new DomainException("MENU_ARCHIVED", "An archived menu cannot be modified.");
+
+        if (!menu.IsActive)
+            throw new DomainException("MENU_INACTIVE", "Only an active menu can be published.");
+
+        if (categoryCount < 1)
+            throw new DomainException("MENU_EMPTY", "A menu without categories cannot be published.");
+
+        // Resolve the public URL before publishing. A published website is not
+        // required to publish the menu; when none is eligible the URL is left
+        // null and can be populated on a later republish.
+        var publicUrl = await ResolvePublicUrlAsync(menu, ct);
+
         menu.Publish(categoryCount);
 
-        var publicUrl = await ResolvePublicUrlAsync(menu, ct);
-        if (publicUrl is not null)
+        if (!string.IsNullOrWhiteSpace(publicUrl))
         {
             menu.SetPublicUrl(publicUrl);
         }
@@ -248,21 +263,26 @@ public sealed class MenuService(ApplicationDbContext db, TenantAccessGuard acces
     /// Resolves the authoritative public customer-facing URL for a published
     /// menu. The value is derived entirely server-side from the configured
     /// frontend base URL and the restaurant's published website slug — it is
-    /// never accepted from callers. Returns null when no base URL is configured
-    /// or the restaurant has no published website, in which case publishing
-    /// still succeeds without a URL.
+    /// never accepted from callers. Throws a <see cref="DomainException"/> when
+    /// the frontend base URL is not configured. Returns null when the restaurant
+    /// has no eligible published website; publishing the menu does not require a
+    /// website, so a null URL is a valid outcome.
     /// </summary>
     private async Task<string?> ResolvePublicUrlAsync(Menu menu, CancellationToken ct)
     {
         var frontendBaseUrl = configuration["Frontend:BaseUrl"];
         if (string.IsNullOrWhiteSpace(frontendBaseUrl))
         {
-            return null;
+            throw new DomainException(
+                "MENU_PUBLIC_URL_NOT_CONFIGURED",
+                "The public site URL cannot be resolved because the frontend base URL is not configured.");
         }
 
         if (!Uri.TryCreate(frontendBaseUrl, UriKind.Absolute, out var baseUri))
         {
-            return null;
+            throw new DomainException(
+                "MENU_PUBLIC_URL_NOT_CONFIGURED",
+                "The public site URL cannot be resolved because the frontend base URL is not configured.");
         }
 
         var slug = await db.Websites.AsNoTracking()

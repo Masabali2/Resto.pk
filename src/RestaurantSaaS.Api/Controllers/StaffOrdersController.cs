@@ -64,11 +64,38 @@ public sealed class StaffOrdersController(
     [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.OrderView)]
     public async Task<ActionResult<ApiResponse<StaffOrderSummaryDto>>> GetSummary(
     Guid restaurantId,
+    [FromQuery] string? startDate,
+    [FromQuery] string? endDate,
     CancellationToken ct = default)
     {
-        var summary = await orderService.GetSummaryAsync(restaurantId, ct);
+        var summary = await orderService.GetSummaryAsync(
+            restaurantId,
+            ParseDate(startDate),
+            ParseDate(endDate),
+            ct);
 
         return Ok(ApiResponse<StaffOrderSummaryDto>.Ok(summary));
+    }
+
+    /// <summary>
+    /// Daily order trend (revenue and order volume) for the restaurant within
+    /// an optional date range. Read-only dashboard analytics.
+    /// </summary>
+    [HttpGet("analytics")]
+    [Authorize(Policy = IdentityPolicyNames.PermissionPrefix + Permissions.OrderView)]
+    public async Task<ActionResult<ApiResponse<OrderAnalyticsDto>>> GetAnalytics(
+    Guid restaurantId,
+    [FromQuery] string? startDate,
+    [FromQuery] string? endDate,
+    CancellationToken ct = default)
+    {
+        var analytics = await orderService.GetOrderAnalyticsAsync(
+            restaurantId,
+            ParseDate(startDate),
+            ParseDate(endDate),
+            ct);
+
+        return Ok(ApiResponse<OrderAnalyticsDto>.Ok(analytics));
     }
 
     [HttpGet("create")]
@@ -94,4 +121,16 @@ public sealed class StaffOrdersController(
         return Ok(ApiResponse<StaffOrderDto>.Ok(order));
     }
 
+    /// <summary>
+    /// Parses an optional "YYYY-MM-DD" query value into a server-side date.
+    /// Returns null when the value is absent or not a valid calendar date.
+    /// </summary>
+    private static DateOnly? ParseDate(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) {
+            return null;
+        }
+
+        return DateOnly.TryParse(value, out var date) ? date : null;
+    }
 }

@@ -606,6 +606,149 @@ public sealed class DefaultMenuServiceTests
         second.PublicUrl.Should().Be(first.PublicUrl);
     }
 
+    [Fact]
+    public async Task PublishAsync_MissingPublishedWebsite_PublishesWithNullPublicUrl()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "No Website Tenant", "no-website-tenant");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "No Website Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Draft Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
+
+        var result = await service.PublishAsync(menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.PublicUrl.Should().BeNull();
+
+        var persisted = await fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+        persisted.PublicUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PublishAsync_UnpublishedWebsite_PublishesWithNullPublicUrl()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Unpublished Website Tenant", "unpublished-website-tenant");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Unpublished Website Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Draft Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        var template = WebsiteTemplate.Create("Unpublished Template", "unpublished-template");
+        fx.Db.WebsiteTemplates.Add(template);
+        var website = Website.Create(tenant.Id, restaurant.Id, template.Id, "Unpublished Site", "unpublished-site");
+        fx.Db.Websites.Add(website);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
+
+        var result = await service.PublishAsync(menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.PublicUrl.Should().BeNull();
+
+        var persisted = await fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+        persisted.PublicUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PublishAsync_WrongRestaurantWebsite_PublishesWithNullPublicUrl()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Tenant A", "tenant-a");
+        fx.TenantContext.SetTenant(tenant.Id);
+
+        var restaurantA = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Restaurant A", RestaurantStatus.Active);
+        var menuA = Menu.Create(tenant.Id, restaurantA.Id, "Menu A");
+        fx.Db.Menus.Add(menuA);
+        var categoryA = MenuCategory.Create(menuA.Id, "Burgers");
+        fx.Db.MenuCategories.Add(categoryA);
+        await fx.Db.SaveChangesAsync();
+
+        var restaurantB = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Restaurant B", RestaurantStatus.Active);
+        var template = WebsiteTemplate.Create("Published Template B", "published-template-b");
+        fx.Db.WebsiteTemplates.Add(template);
+        var websiteB = Website.Create(tenant.Id, restaurantB.Id, template.Id, "Published Site B", "published-site-b");
+        var draftB = WebsiteConfiguration.CreateDraft(websiteB.Id, "{}", 1);
+        websiteB.Publish(draftB, template, DateTime.UtcNow);
+        fx.Db.Websites.Add(websiteB);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
+
+        var result = await service.PublishAsync(menuA.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.PublicUrl.Should().BeNull();
+
+        var persisted = await fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == menuA.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+        persisted.PublicUrl.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task PublishAsync_RepairsPublishedMenuWithNullPublicUrl()
+    {
+        var fx = TestFactory.Create();
+        fx.Db.DisableTenantFilters = false;
+        var (tenant, _) = await TestFactory.AddTenantWithOwnerAsync(fx, "Repair Tenant", "repair-tenant");
+        fx.TenantContext.SetTenant(tenant.Id);
+        var restaurant = await TestFactory.AddRestaurantAsync(fx, tenant.Id, "Repair Restaurant", RestaurantStatus.Active);
+        var menu = Menu.Create(tenant.Id, restaurant.Id, "Draft Menu");
+        fx.Db.Menus.Add(menu);
+        var category = MenuCategory.Create(menu.Id, "Burgers");
+        fx.Db.MenuCategories.Add(category);
+        await fx.Db.SaveChangesAsync();
+
+        menu.Publish(1);
+        await fx.Db.SaveChangesAsync();
+
+        var persistedBefore = await fx.Db.Menus.AsNoTracking().SingleAsync(m => m.Id == menu.Id);
+        persistedBefore.Status.Should().Be(MenuStatus.Published);
+        persistedBefore.PublicUrl.Should().BeNull();
+
+        var template = WebsiteTemplate.Create("Repair Template", "repair-template");
+        fx.Db.WebsiteTemplates.Add(template);
+        var website = Website.Create(tenant.Id, restaurant.Id, template.Id, "Repair Site", "repair-site");
+        var draft = WebsiteConfiguration.CreateDraft(website.Id, "{}", 1);
+        website.Publish(draft, template, DateTime.UtcNow);
+        fx.Db.Websites.Add(website);
+        await fx.Db.SaveChangesAsync();
+
+        var service = new MenuService(fx.Db, fx.AccessGuard, CreateConfiguration());
+
+        var result = await service.PublishAsync(menu.Id);
+
+        result.Status.Should().Be(MenuStatus.Published.ToString());
+        result.PublicUrl.Should().Be("https://localhost:4200/r/repair-site/menu");
+
+        var persisted = await fx.Db.Menus
+            .AsNoTracking()
+            .SingleAsync(m => m.Id == menu.Id);
+        persisted.Status.Should().Be(MenuStatus.Published);
+        persisted.PublicUrl.Should().Be("https://localhost:4200/r/repair-site/menu");
+    }
+
     private static async Task<PublishScenario> CreatePublishScenarioAsync()
     {
         var fx = TestFactory.Create();

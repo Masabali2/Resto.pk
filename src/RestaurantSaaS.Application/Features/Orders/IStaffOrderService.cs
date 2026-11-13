@@ -47,10 +47,22 @@ public interface IStaffOrderService
         CancellationToken ct = default);
     Task<StaffOrderSummaryDto> GetSummaryAsync(
     Guid restaurantId,
+    DateOnly? startDate = null,
+    DateOnly? endDate = null,
     CancellationToken ct = default);
     Task<StaffCreateOrderDto> GetCreateContextAsync(
     Guid restaurantId,
     CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Order trend analytics (daily revenue and order volume) for a restaurant
+    /// within an optional date range. Read-only, tenant and restaurant scoped.
+    /// </summary>
+    Task<OrderAnalyticsDto> GetOrderAnalyticsAsync(
+        Guid restaurantId,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        CancellationToken ct = default);
 
     /// <summary>
     /// Creates a new staff order for the restaurant. All financials (prices,

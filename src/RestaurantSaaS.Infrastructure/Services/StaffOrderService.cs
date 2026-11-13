@@ -229,6 +229,8 @@ public sealed class StaffOrderService(
 
     public async Task<StaffOrderSummaryDto> GetSummaryAsync(
         Guid restaurantId,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
         CancellationToken ct = default)
     {
         var tenantId = await GetActiveTenantIdAsync(
@@ -243,16 +245,20 @@ public sealed class StaffOrderService(
                 ct)
             ?? throw new NotFoundException("Restaurant", restaurantId);
 
+        var (utcStart, utcEnd) = ToUtcRange(startDate, endDate, restaurant.TimeZone);
+
         var orders = db.Orders
             .AsNoTracking()
             .Where(o =>
                 o.TenantId == tenantId &&
-                o.RestaurantId == restaurantId);
+                o.RestaurantId == restaurantId &&
+                (utcStart == null || o.CreatedAt >= utcStart) &&
+                (utcEnd == null || o.CreatedAt < utcEnd));
 
-        // Total orders across the restaurant's complete history.
+        // Total orders within the requested period (all-time when unbounded).
         var totalOrders = await orders.CountAsync(ct);
 
-        // Orders that are currently in the kitchen pipeline.
+        // Orders that are currently in the kitchen pipeline (live count).
         var pendingKitchen = await orders.CountAsync(
             o => o.Status == OrderStatus.New ||
                  o.Status == OrderStatus.Confirmed ||
@@ -292,11 +298,24 @@ public sealed class StaffOrderService(
                  o.CompletedAt.Value < utcDayEnd,
             ct);
 
+        // Completed and cancelled orders within the requested period.
+        var completedOrders = await orders.CountAsync(
+            o => o.Status == OrderStatus.Completed,
+            ct);
+
+        var cancelledOrders = await orders.CountAsync(
+            o => o.Status == OrderStatus.Cancelled,
+            ct);
+
         // Revenue follows the agreed business rule:
         // sum TotalAmount for completed orders, regardless of PaymentStatus.
         var totalRevenue = await orders
             .Where(o => o.Status == OrderStatus.Completed)
             .SumAsync(o => (decimal?)o.TotalAmount, ct) ?? 0m;
+
+        var averageOrderValue = completedOrders > 0
+            ? Math.Round(totalRevenue / completedOrders, 4, MidpointRounding.AwayFromZero)
+            : 0m;
 
         // The current Resto.pk ordering flow uses one currency per order.
         // Use the most recent order's currency; fall back to the platform
@@ -311,8 +330,114 @@ public sealed class StaffOrderService(
             totalOrders,
             pendingKitchen,
             completedToday,
+            completedOrders,
+            cancelledOrders,
             totalRevenue,
-            currency);
+            averageOrderValue,
+            currency,
+            startDate,
+            endDate);
+    }
+
+    public async Task<OrderAnalyticsDto> GetOrderAnalyticsAsync(
+        Guid restaurantId,
+        DateOnly? startDate = null,
+        DateOnly? endDate = null,
+        CancellationToken ct = default)
+    {
+        var tenantId = await GetActiveTenantIdAsync(
+            Permissions.OrderView,
+            ct);
+
+        var restaurant = await db.Restaurants
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                r => r.Id == restaurantId && r.TenantId == tenantId,
+                ct)
+            ?? throw new NotFoundException("Restaurant", restaurantId);
+
+        var (utcStart, utcEnd) = ToUtcRange(startDate, endDate, restaurant.TimeZone);
+
+        // Projection only: load the fields needed for the trend, not full order
+        // entities, so the query stays cheap even for long date ranges.
+        var rows = await db.Orders
+            .AsNoTracking()
+            .Where(o =>
+                o.TenantId == tenantId &&
+                o.RestaurantId == restaurantId &&
+                (utcStart == null || o.CreatedAt >= utcStart) &&
+                (utcEnd == null || o.CreatedAt < utcEnd))
+            .Select(o => new { o.CreatedAt, o.TotalAmount, o.Status })
+            .ToListAsync(ct);
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(restaurant.TimeZone);
+
+        var daily = rows
+            .GroupBy(o =>
+                TimeZoneInfo.ConvertTimeFromUtc(
+                    DateTime.SpecifyKind(o.CreatedAt, DateTimeKind.Utc),
+                    timeZone).Date)
+            .OrderBy(g => g.Key)
+            .Select(g => new DailyOrderDto(
+                DateOnly.FromDateTime(g.Key),
+                g.Count(),
+                g.Where(o => o.Status == OrderStatus.Completed)
+                    .Sum(o => (decimal)o.TotalAmount)))
+            .ToList();
+
+        return new OrderAnalyticsDto(
+            daily,
+            rows.Count,
+            rows.Where(o => o.Status == OrderStatus.Completed)
+                .Sum(o => (decimal)o.TotalAmount));
+    }
+
+    /// <summary>
+    /// Converts an optional inclusive local date range (restaurant timezone)
+    /// into an exclusive UTC [start, end) window for querying order timestamps.
+    /// Returns (null, null) when the range is unbounded.
+    /// </summary>
+    private static (DateTime? UtcStart, DateTime? UtcEnd) ToUtcRange(
+        DateOnly? startDate,
+        DateOnly? endDate,
+        string timeZoneId)
+    {
+        if (startDate is null && endDate is null)
+        {
+            return (null, null);
+        }
+
+        var timeZone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+
+        DateTime? utcStart = null;
+        DateTime? utcEnd = null;
+
+        if (startDate.HasValue)
+        {
+            var localStart = new DateTime(
+                startDate.Value.Year,
+                startDate.Value.Month,
+                startDate.Value.Day);
+
+            utcStart = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(localStart, DateTimeKind.Unspecified),
+                timeZone);
+        }
+
+        if (endDate.HasValue)
+        {
+            // End is exclusive: the start of the day after the requested end.
+            var localNextDay = new DateTime(
+                endDate.Value.Year,
+                endDate.Value.Month,
+                endDate.Value.Day).AddDays(1);
+
+            utcEnd = TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(localNextDay, DateTimeKind.Unspecified),
+                timeZone);
+        }
+
+        return (utcStart, utcEnd);
     }
 
 
